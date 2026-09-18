@@ -9,14 +9,18 @@ The router-side subsystem for **OpenWrt Wi-Fi Quota Manager**. This layer execut
 ```text
 openwrt/
 ├── README.md               # Main overview and setup guide
+├── install.sh              # 1-command installer script for OpenWrt
+├── uninstall.sh            # Clean uninstaller script for OpenWrt
+├── deploy.sh               # SSH/SCP deployment script to push code to router
 ├── config/                 # Device and quota configuration
 │   ├── README.md           # Configuration schema and guide
 │   └── devices.json        # Active configuration file
 ├── scripts/                # Core modular Python scripts
 │   ├── README.md           # Execution guide and CLI parameters
-│   ├── check_quota.py      # Core quota enforcement engine
+│   ├── check_quota.py      # Core quota enforcement engine & CLI
 │   ├── device_manager.py   # Device discovery and config reader
-│   └── usage_manager.py    # nlbwmon query and usage parser
+│   ├── usage_manager.py    # nlbwmon query and usage parser
+│   └── simulate.py         # Offline full workflow simulator
 ├── nftables/               # Firewall rules and access control sets
 │   ├── README.md           # Rule loading and set manipulation guide
 │   └── rules.nft           # nftables table and set definitions
@@ -38,24 +42,74 @@ openwrt/
 
 ---
 
-## 🛠 Prerequisites on OpenWrt
+## 🚀 Quick Start & Deployment
 
-Ensure your OpenWrt router has an active SSH connection and updated package index:
+### Option A: 1-Command Push from Computer to Router (`deploy.sh`)
+
+From your development machine, push the whole subsystem directly to the router:
 
 ```bash
-# Update package repositories
-opkg update
-
-# Install required packages
-# Note: Python standard library is sufficient; no pip/third-party packages needed.
-opkg install python3-base python3-light nlbwmon nftables
-
-# Enable and start nlbwmon service
-/etc/init.d/nlbwmon enable
-/etc/init.d/nlbwmon start
+# Push to router (defaults to 192.168.1.1)
+./openwrt/deploy.sh 192.168.1.1
 ```
 
-#./scripts/check_quota.py 5000 /tmp/devices.json
+### Option B: Direct Installation on OpenWrt Router (`install.sh`)
+
+SSH into your router and run:
+
+```bash
+# 1. Clone or copy openwrt/ to /root/openwrt-wifi-quota-manager/openwrt
+cd /root/openwrt-wifi-quota-manager/openwrt
+
+# 2. Run automated installer
+sh install.sh
+```
+
+The installer automatically:
+- Verifies and installs `python3-base`, `nlbwmon`, and `nftables`.
+- Configures and enables the `nlbwmon` daemon.
+- Copies and initializes the `inet quota_manager` table in `nftables`.
+- Installs and enables the `/etc/init.d/quota-manager` procd service.
+- Configures cron (`/etc/crontabs/root`) to run enforcement every minute.
+
+---
+
+## 🎮 CLI Management (`check_quota.py`)
+
+You can run `check_quota.py` directly from the OpenWrt terminal:
+
+```bash
+# View real-time status table of all devices, usage, and firewall state:
+python3 openwrt/scripts/check_quota.py --status
+
+# Run quota audit in dry-run mode (no firewall changes):
+python3 openwrt/scripts/check_quota.py --dry-run --verbose
+
+# Manually block a specific MAC:
+python3 openwrt/scripts/check_quota.py --block AA:BB:CC:DD:EE:FF
+
+# Manually unblock a specific MAC:
+python3 openwrt/scripts/check_quota.py --unblock AA:BB:CC:DD:EE:FF
+
+# List all currently blocked MACs in nftables:
+python3 openwrt/scripts/check_quota.py --list-blocked
+```
+
+---
+
+## 🧪 Testing & Local Simulation (Without a Router)
+
+You can test and simulate the entire OpenWrt quota lifecycle on your development machine:
+
+```bash
+# Run unit test suite (20 tests):
+python3 -m unittest discover -s openwrt/tests -p "test_*.py" -v
+
+# Run interactive offline simulator:
+python3 openwrt/scripts/simulate.py
+```
+
+---
 
 ## ⚡ Key Architectural Principles
 
