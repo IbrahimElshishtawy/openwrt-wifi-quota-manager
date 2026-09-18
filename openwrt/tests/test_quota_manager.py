@@ -12,14 +12,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# Add openwrt/scripts to Python path
+# Ensure scripts directory is in sys.path for standalone or on-router runs
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from device_manager import DeviceManager, normalize_mac
-from usage_manager import UsageManager, bytes_to_gb
-from check_quota import QuotaChecker
+try:
+    from openwrt.scripts.device_manager import DeviceManager, normalize_mac
+    from openwrt.scripts.usage_manager import UsageManager, bytes_to_gb
+    from openwrt.scripts.check_quota import QuotaChecker
+except (ImportError, ModuleNotFoundError):
+    from device_manager import DeviceManager, normalize_mac  # type: ignore
+    from usage_manager import UsageManager, bytes_to_gb      # type: ignore
+    from check_quota import QuotaChecker                      # type: ignore
 
 
 class TestMacValidation(unittest.TestCase):
