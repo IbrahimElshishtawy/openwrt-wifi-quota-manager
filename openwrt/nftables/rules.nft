@@ -1,0 +1,22 @@
+#!/usr/sbin/nft -f
+# OpenWrt Wi-Fi Quota Manager - nftables Access Control Rules
+# Dedicated table and set for high-performance MAC address blocking
+
+table inet quota_manager {
+    # Set storing MAC addresses of blocked devices
+    set blocked_devices {
+        type ether_addr
+        comment "MAC addresses of clients blocked due to quota exhaustion or admin disable"
+    }
+
+    # Early forward hook (priority -5) to drop traffic before conntrack/NAT
+    chain forward_quota {
+        type filter hook forward priority -5; policy accept;
+
+        # Drop outbound packets from blocked MACs
+        ether saddr @blocked_devices counter drop comment "Drop traffic from blocked client"
+
+        # Drop inbound packets destined to blocked MACs
+        ether daddr @blocked_devices counter drop comment "Drop return traffic to blocked client"
+    }
+}

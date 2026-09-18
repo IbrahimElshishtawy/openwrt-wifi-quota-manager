@@ -1,0 +1,27 @@
+{
+  "package": {
+    "total_gb": 250,
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30"
+  },
+  "devices": [
+    {
+      "mac": "AA:BB:CC:DD:EE:FF",
+      "name": "Ahmed Phone",
+      "quota_gb": 20.0,
+      "enabled": true
+    },
+    {
+      "mac": "11:22:33:44:55:66",
+      "name": "Living Room TV",
+      "quota_gb": 50.0,
+      "enabled": true
+    },
+    {
+      "mac": "66:77:88:99:AA:BB",
+      "name": "Guest Laptop",
+      "quota_gb": 10.0,
+      "enabled": false
+    }
+  ]
+}
