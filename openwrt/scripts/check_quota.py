@@ -18,8 +18,12 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
-from device_manager import DeviceManager, normalize_mac
-from usage_manager import UsageManager
+try:
+    from openwrt.scripts.device_manager import DeviceManager, normalize_mac
+    from openwrt.scripts.usage_manager import UsageManager
+except (ImportError, ModuleNotFoundError):
+    from device_manager import DeviceManager, normalize_mac  # type: ignore
+    from usage_manager import UsageManager                    # type: ignore
 
 # Configure root logger with requested bracketed format
 logging.basicConfig(
