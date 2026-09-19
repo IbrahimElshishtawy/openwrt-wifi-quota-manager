@@ -69,7 +69,7 @@ class TopConsumersSection extends StatelessWidget {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: consumers.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 14),
+            separatorBuilder: (context, index) => const SizedBox(height: 14),
             itemBuilder: (context, index) {
               final consumer = consumers[index];
               final ratio = (consumer.usageGb / maxUsage).clamp(0.0, 1.0);

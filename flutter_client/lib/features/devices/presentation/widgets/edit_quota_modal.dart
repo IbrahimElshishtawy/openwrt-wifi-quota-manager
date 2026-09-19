@@ -213,13 +213,16 @@ class _EditQuotaModalState extends State<EditQuotaModal> {
                         return;
                       }
 
+                      final navigator = Navigator.of(context);
+                      final messenger = ScaffoldMessenger.of(context);
+
                       setState(() => _isSaving = true);
                       try {
                         await widget.onSave(val, _enabled);
-                        if (mounted) Navigator.pop(context);
+                        if (mounted) navigator.pop();
                       } catch (e) {
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.showSnackBar(
                             SnackBar(content: Text('Error saving: $e')),
                           );
                         }
