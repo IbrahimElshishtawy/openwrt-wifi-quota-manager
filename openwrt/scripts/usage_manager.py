@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Usage Manager Module
-Responsible for retrieving and parsing bandwidth consumption metrics from nlbwmon.
+Responsible for retrieving and parsing bandwidth consumption metrics from nlbwmon via ubus.
 Decoupled from quota evaluation logic and firewall control.
 """
 
@@ -10,7 +10,8 @@ import logging
 import os
 import re
 import subprocess
-from typing import Dict, Any, Optional
+import sys
+from typing import Dict, Any, Optional, List, Union
 
 logger = logging.getLogger("QuotaManager.Usage")
 
@@ -25,15 +26,49 @@ def normalize_mac(mac: str) -> str:
     """
     if not isinstance(mac, str) or not MAC_REGEX.match(mac.strip()):
         raise ValueError(f"Invalid MAC address format: {mac}")
-    cleaned = mac.strip().replace("-", ":").upper()
-    return cleaned
+    return mac.strip().replace("-", ":").upper()
+
+
+def convert_bytes(num_bytes: int, target_unit: str = "GB") -> float:
+    """
+    Converts raw bytes to specified unit: 'B', 'KB', 'MB', 'GB'.
+    Returns float rounded to 3 decimal places.
+    """
+    if num_bytes <= 0:
+        return 0.0
+
+    unit = target_unit.upper().strip()
+    if unit in ("B", "BYTES"):
+        return float(num_bytes)
+    elif unit in ("KB", "KILOBYTES"):
+        return round(num_bytes / 1024.0, 3)
+    elif unit in ("MB", "MEGABYTES"):
+        return round(num_bytes / (1024.0 ** 2), 3)
+    elif unit in ("GB", "GIGABYTES"):
+        return round(num_bytes / (1024.0 ** 3), 3)
+    else:
+        raise ValueError(f"Unsupported unit: {target_unit}. Use B, KB, MB, or GB.")
 
 
 def bytes_to_gb(num_bytes: int) -> float:
     """Converts bytes to gigabytes (GB) rounded to 3 decimal places."""
+    return convert_bytes(num_bytes, "GB")
+
+
+def format_bytes(num_bytes: int) -> str:
+    """
+    Formats byte count into a human-readable string (e.g. '12.34 MB' or '1.50 GB').
+    """
     if num_bytes <= 0:
-        return 0.0
-    return round(num_bytes / (1024 ** 3), 3)
+        return "0.00 B"
+
+    units = ["B", "KB", "MB", "GB", "TB"]
+    val = float(num_bytes)
+    idx = 0
+    while val >= 1024.0 and idx < len(units) - 1:
+        val /= 1024.0
+        idx += 1
+    return f"{val:.2f} {units[idx]}"
 
 
 class UsageManager:
@@ -41,17 +76,17 @@ class UsageManager:
     Interfaces with OpenWrt nlbwmon to extract per-device data consumption.
     """
 
-    def __init__(self, mock_data: Optional[Dict[str, Any]] = None):
+    def __init__(self, mock_data: Optional[Union[Dict[str, Any], List[Any]]] = None):
         """
         Initializes UsageManager.
-        :param mock_data: Optional dictionary containing mock nlbwmon response for offline testing.
+        :param mock_data: Optional dictionary or list containing mock nlbwmon response for offline testing.
         """
         self.mock_data = mock_data
 
-    def _query_nlbwmon_ubus(self) -> Optional[Dict[str, Any]]:
+    def _query_nlbwmon_ubus(self) -> Optional[Union[Dict[str, Any], List[Any]]]:
         """
         Executes 'ubus call nlbwmon query' safely without shell=True.
-        Returns parsed JSON dict or None on failure.
+        Returns parsed JSON dict/list or None on failure.
         """
         if self.mock_data is not None:
             logger.debug("Using mock nlbwmon data")
@@ -95,14 +130,20 @@ class UsageManager:
     def get_all_devices_usage(self) -> Dict[str, Dict[str, Any]]:
         """
         Fetches consumption records for all devices from nlbwmon.
-        Returns a dict mapping normalized MAC to usage statistics:
+        Returns a dict mapping normalized MAC to comprehensive usage statistics:
         {
             "AA:BB:CC:DD:EE:FF": {
                 "mac": "AA:BB:CC:DD:EE:FF",
                 "rx_bytes": 1073741824,
                 "tx_bytes": 536870912,
+                "download_bytes": 1073741824,
+                "upload_bytes": 536870912,
                 "total_bytes": 1610612736,
-                "total_gb": 1.5
+                "download_gb": 1.0,
+                "upload_gb": 0.5,
+                "total_gb": 1.5,
+                "total_mb": 1536.0,
+                "formatted": "1.50 GB"
             }
         }
         """
@@ -113,9 +154,8 @@ class UsageManager:
             logger.warning("No data retrieved from nlbwmon query")
             return usage_map
 
-        # nlbwmon output format handles both column/rows structure and list of dicts
         # Format 1: {"columns": ["mac", "rx_bytes", "tx_bytes", ...], "rows": [...]}
-        if "columns" in data and "rows" in data:
+        if isinstance(data, dict) and "columns" in data and "rows" in data:
             columns = [col.lower() for col in data.get("columns", [])]
             rows = data.get("rows", [])
 
@@ -123,16 +163,23 @@ class UsageManager:
             rx_idx = columns.index("rx_bytes") if "rx_bytes" in columns else -1
             tx_idx = columns.index("tx_bytes") if "tx_bytes" in columns else -1
 
+            # Fallback column names used in some nlbwmon variants
+            if rx_idx == -1 and "download_bytes" in columns:
+                rx_idx = columns.index("download_bytes")
+            if tx_idx == -1 and "upload_bytes" in columns:
+                tx_idx = columns.index("upload_bytes")
+
             if mac_idx == -1:
                 logger.error("Column 'mac' missing from nlbwmon output")
                 return usage_map
 
             for row in rows:
+                if not isinstance(row, list) or len(row) <= mac_idx:
+                    continue
+
                 try:
-                    raw_mac = str(row[mac_idx])
-                    norm_mac = normalize_mac(raw_mac)
+                    norm_mac = normalize_mac(str(row[mac_idx]))
                 except ValueError:
-                    logger.debug("Skipping row with invalid MAC: %s", row[mac_idx] if len(row) > mac_idx else "")
                     continue
 
                 rx_bytes = int(row[rx_idx]) if rx_idx != -1 and rx_idx < len(row) else 0
@@ -140,48 +187,61 @@ class UsageManager:
                 total_bytes = rx_bytes + tx_bytes
 
                 if norm_mac in usage_map:
-                    # Aggregate if multiple entries exist (e.g. multiple IPs or subnets)
                     usage_map[norm_mac]["rx_bytes"] += rx_bytes
                     usage_map[norm_mac]["tx_bytes"] += tx_bytes
+                    usage_map[norm_mac]["download_bytes"] += rx_bytes
+                    usage_map[norm_mac]["upload_bytes"] += tx_bytes
                     usage_map[norm_mac]["total_bytes"] += total_bytes
-                    usage_map[norm_mac]["total_gb"] = bytes_to_gb(usage_map[norm_mac]["total_bytes"])
                 else:
                     usage_map[norm_mac] = {
                         "mac": norm_mac,
                         "rx_bytes": rx_bytes,
                         "tx_bytes": tx_bytes,
-                        "total_bytes": total_bytes,
-                        "total_gb": bytes_to_gb(total_bytes)
+                        "download_bytes": rx_bytes,
+                        "upload_bytes": tx_bytes,
+                        "total_bytes": total_bytes
                     }
 
-        # Format 2: {"records": [{"mac": "...", "rx_bytes": ..., "tx_bytes": ...}, ...]}
-        elif "records" in data or isinstance(data, list):
+        # Format 2: {"records": [{"mac": "...", "rx_bytes": ..., ...}]} or direct list
+        elif (isinstance(data, dict) and "records" in data) or isinstance(data, list):
             records = data.get("records", []) if isinstance(data, dict) else data
             for record in records:
                 if not isinstance(record, dict) or "mac" not in record:
                     continue
                 try:
-                    norm_mac = normalize_mac(record["mac"])
+                    norm_mac = normalize_mac(str(record["mac"]))
                 except ValueError:
                     continue
 
-                rx_bytes = int(record.get("rx_bytes", 0))
-                tx_bytes = int(record.get("tx_bytes", 0))
+                rx_bytes = int(record.get("rx_bytes", record.get("download_bytes", 0)))
+                tx_bytes = int(record.get("tx_bytes", record.get("upload_bytes", 0)))
                 total_bytes = rx_bytes + tx_bytes
 
                 if norm_mac in usage_map:
                     usage_map[norm_mac]["rx_bytes"] += rx_bytes
                     usage_map[norm_mac]["tx_bytes"] += tx_bytes
+                    usage_map[norm_mac]["download_bytes"] += rx_bytes
+                    usage_map[norm_mac]["upload_bytes"] += tx_bytes
                     usage_map[norm_mac]["total_bytes"] += total_bytes
-                    usage_map[norm_mac]["total_gb"] = bytes_to_gb(usage_map[norm_mac]["total_bytes"])
                 else:
                     usage_map[norm_mac] = {
                         "mac": norm_mac,
                         "rx_bytes": rx_bytes,
                         "tx_bytes": tx_bytes,
-                        "total_bytes": total_bytes,
-                        "total_gb": bytes_to_gb(total_bytes)
+                        "download_bytes": rx_bytes,
+                        "upload_bytes": tx_bytes,
+                        "total_bytes": total_bytes
                     }
+
+        # Populate calculated unit fields
+        for mac, stats in usage_map.items():
+            tot = stats["total_bytes"]
+            stats["download_gb"] = bytes_to_gb(stats["download_bytes"])
+            stats["upload_gb"] = bytes_to_gb(stats["upload_bytes"])
+            stats["total_gb"] = bytes_to_gb(tot)
+            stats["total_mb"] = convert_bytes(tot, "MB")
+            stats["total_kb"] = convert_bytes(tot, "KB")
+            stats["formatted"] = format_bytes(tot)
 
         return usage_map
 
@@ -199,6 +259,40 @@ class UsageManager:
             "mac": norm_mac,
             "rx_bytes": 0,
             "tx_bytes": 0,
+            "download_bytes": 0,
+            "upload_bytes": 0,
             "total_bytes": 0,
-            "total_gb": 0.0
+            "download_gb": 0.0,
+            "upload_gb": 0.0,
+            "total_gb": 0.0,
+            "total_mb": 0.0,
+            "total_kb": 0.0,
+            "formatted": "0.00 B"
         }
+
+
+def main():
+    """CLI helper to inspect live or mock usage directly on the router."""
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+    mgr = UsageManager()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--json":
+        print(json.dumps(mgr.get_all_devices_usage(), indent=2))
+        return
+
+    usage = mgr.get_all_devices_usage()
+    print(f"\n{'MAC Address':<18} | {'Download':<12} | {'Upload':<12} | {'Total':<12}")
+    print("-" * 62)
+    if not usage:
+        print("No active bandwidth records found from nlbwmon.")
+    else:
+        for mac, data in usage.items():
+            dl = format_bytes(data["download_bytes"])
+            ul = format_bytes(data["upload_bytes"])
+            tot = format_bytes(data["total_bytes"])
+            print(f"{mac:<18} | {dl:<12} | {ul:<12} | {tot:<12}")
+    print()
+
+
+if __name__ == "__main__":
+    main()

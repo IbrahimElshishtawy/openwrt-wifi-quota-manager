@@ -1,47 +1,48 @@
-# Tests Subsystem (`openwrt/tests/`)
+# Test Suite & Verification Subsystem (`openwrt/tests/`)
 
-This directory contains automated unit and integration tests for validating the OpenWrt Wi-Fi Quota Manager logic.
-
----
-
-## 🧪 Test Scenarios Covered
-
-The test suite validates:
-1. **MAC Normalization & Format Validation**:
-   - Standard colon formatting (`aa:bb:cc:dd:ee:ff` -> `AA:BB:CC:DD:EE:FF`).
-   - Hyphen formatting (`aa-bb-cc-dd-ee-ff`).
-   - Whitespace stripping.
-   - Rejection of invalid octets, short MACs, long MACs, non-hex characters, and null values.
-2. **Bandwidth Calculations**:
-   - Accurate bytes-to-Gigabytes conversion.
-   - Handling of negative or zero values.
-3. **Usage Manager Parsing**:
-   - `nlbwmon` column/row JSON format.
-   - `nlbwmon` records JSON format.
-   - Graceful fallback when `nlbwmon` is unavailable or returns an error.
-4. **Device Manager Config & Discovery**:
-   - Parsing valid `devices.json`.
-   - Rejection of duplicate MAC entries.
-   - Graceful recovery from missing or corrupted configuration.
-   - Live client discovery via mock `/tmp/dhcp.leases` and `/proc/net/arp`.
-5. **Quota Enforcement Logic**:
-   - **Device under quota**: Status `allow`, unblock action triggered.
-   - **Device exactly at quota**: Status `allow`.
-   - **Device over quota**: Status `block`, added to `blocked_devices` set.
-   - **Administratively disabled device**: Status `block`, regardless of usage.
-   - **End-to-end full audit**: Verifies summary metrics and action calls.
-   - **Fault tolerance**: Safe handling of `nft` binary failures without crashing.
+This directory contains comprehensive unit test suites and an automated diagnostic verification script for the OpenWrt router subsystem.
 
 ---
 
-## 🚀 Running the Tests
+## 🧪 Test Architecture
 
-Tests use Python's built-in `unittest` runner. No virtual environments or external packages (`pytest`) are required:
+All tests use Python's built-in `unittest` module and standard libraries exclusively, guaranteeing full execution capability on both developer workstations and minimal embedded routers without installing external test packages.
 
+| Test File | Target Module | Scope & Capabilities |
+| :--- | :--- | :--- |
+| `test_usage.py` | `usage_manager.py` | nlbwmon columns/rows & records parsing, byte/GB/MB conversions, ubus missing/timeout error handling. |
+| `test_devices.py` | `device_manager.py` | MAC validation, configuration CRUD, atomic write safety, `/tmp/dhcp.leases` & `/proc/net/arp` discovery. |
+| `test_quota.py` | `check_quota.py` | Arithmetic calculations, percentage bounds, 80%/90%/95%/100% warning thresholds, deduplication, period reset. |
+| `test_firewall.py` | `check_quota.py` | nftables command construction, element add/delete, blocked set querying, missing binary handling, dry-run safety. |
+| `test_api.py` | `api_usage.py` | All 11 REST endpoints (`/health`, `/devices`, `/quota`, `/reports`, `/block`, `/unblock`, etc.), CORS, payload validation. |
+| `test_quota_manager.py` | Master Suite | Aggregates all modular test suites into a single test runner. |
+| `verify_openwrt.sh` | System Integration | Live automated audit script verifying 10 router subsystem criteria with clean `[PASS]`, `[FAIL]`, and `[NOT VERIFIED]` reports. |
+
+---
+
+## 🚀 Running Tests
+
+### Run All Tests via unittest Discovery
 ```bash
-# Run all tests from project root:
 python3 -m unittest discover -s openwrt/tests -p "test_*.py" -v
+```
 
-# Or run test file directly:
-python3 openwrt/tests/test_quota_manager.py -v
+### Run Specific Test Module
+```bash
+python3 openwrt/tests/test_usage.py
+python3 openwrt/tests/test_devices.py
+python3 openwrt/tests/test_quota.py
+python3 openwrt/tests/test_firewall.py
+python3 openwrt/tests/test_api.py
+```
+
+### Run Master Test Runner
+```bash
+python3 openwrt/tests/test_quota_manager.py
+```
+
+### Run Automated System Verification Script
+```bash
+# On router or host workstation:
+sh openwrt/tests/verify_openwrt.sh
 ```

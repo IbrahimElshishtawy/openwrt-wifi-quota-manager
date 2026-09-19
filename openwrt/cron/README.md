@@ -1,10 +1,10 @@
 # Periodic Execution Subsystem (`openwrt/cron/`)
 
-This directory documents the scheduling mechanism for running the quota enforcement engine periodically on OpenWrt routers.
+This directory contains the crontab configuration for running the quota enforcement engine periodically on OpenWrt routers.
 
 ---
 
-## ⏱ Execution Cycle (MVP: Every 1 Minute)
+## ⏱ Execution Cycle (Every 1 Minute)
 
 ```text
 ┌──────────────────────────────────────┐
@@ -28,50 +28,40 @@ This directory documents the scheduling mechanism for running the quota enforcem
          │                   │
          ▼                   ▼
 Ensure Unblocked       Block in nftables
+(evaluate warnings)    (record in drop set)
 ```
 
 ---
 
-## ⚙ OpenWrt Crontab Setup
+## ⚙ Crontab Configuration
 
-OpenWrt uses BusyBox's `crond` daemon. User crontabs are stored in `/etc/crontabs/root`.
-
-### 1. Configure the Cron Entry
-
-Edit the root crontab on the router:
-
-```bash
-crontab -e
-```
-
-Add the following line (assuming the repository is placed at `/root/openwrt-wifi-quota-manager`):
+The file `quota-manager.cron` defines the scheduled execution:
 
 ```crontab
+# OpenWrt Wi-Fi Quota Manager Crontab Schedule
+# Run quota evaluation and firewall enforcement audit every 1 minute
 * * * * * /usr/bin/python3 /root/openwrt-wifi-quota-manager/openwrt/scripts/check_quota.py >> /var/log/quota_manager.log 2>&1
 ```
 
-> [!TIP]
-> **RAM-Based Logging**: On OpenWrt, `/var/log` is a symlink to `/tmp/`, which resides in volatile RAM (`tmpfs`). Writing logs to `/var/log/quota_manager.log` prevents wear and degradation of the router's internal Flash memory chips (NAND/NOR flash).
-
-### 2. Enable and Start the Cron Service
-
-OpenWrt does not enable the cron daemon by default on clean installations:
+### Installation into Router Crontab
+The automated installer `install.sh` handles this automatically. To configure it manually:
 
 ```bash
-# Enable crond service on router startup
+# Add cron job to root's crontab:
+echo "* * * * * /usr/bin/python3 /root/openwrt-wifi-quota-manager/openwrt/scripts/check_quota.py >> /var/log/quota_manager.log 2>&1" >> /etc/crontabs/root
+
+# Enable and start the BusyBox cron daemon:
 /etc/init.d/cron enable
-
-# Start the crond daemon immediately
-/etc/init.d/cron start
-
-# Check service status
-/etc/init.d/cron status
+/etc/init.d/cron restart
 ```
 
-### 3. Log Inspection
+---
 
-Monitor the enforcement execution in real-time via:
+## 💾 RAM-Based Log Inspection
 
+On OpenWrt, `/var/log/` is a symbolic link to `/tmp/`, which resides entirely in volatile RAM (`tmpfs`). This architecture guarantees that writing logs every minute causes **zero wear** on the router's physical flash storage chips.
+
+To inspect execution in real-time:
 ```bash
 tail -f /var/log/quota_manager.log
 ```

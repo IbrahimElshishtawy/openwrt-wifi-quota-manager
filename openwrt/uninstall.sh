@@ -2,6 +2,8 @@
 # OpenWrt Wi-Fi Quota Manager - Router Uninstallation Script
 # Removes services, cron jobs, and firewall rules cleanly
 
+set -e
+
 echo "========================================================"
 echo "    Uninstalling OpenWrt Wi-Fi Quota Manager Subsystem  "
 echo "========================================================"
@@ -25,6 +27,10 @@ if [ -f /etc/crontabs/root ]; then
     sed -i '/check_quota.py/d' /etc/crontabs/root
     /etc/init.d/cron restart 2>/dev/null || true
 fi
+
+# 4. Clean up volatile warning state and logs
+rm -f /tmp/quota_warning_state.json
+rm -f /tmp/quota_warning_state.tmp
 
 echo "========================================================"
 echo "      Uninstallation Completed Successfully!            "

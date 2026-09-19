@@ -1,0 +1,3 @@
+# OpenWrt Wi-Fi Quota Manager Crontab Schedule
+# Run quota evaluation and firewall enforcement audit every 1 minute
+* * * * * /usr/bin/python3 /root/openwrt-wifi-quota-manager/openwrt/scripts/check_quota.py >> /var/log/quota_manager.log 2>&1

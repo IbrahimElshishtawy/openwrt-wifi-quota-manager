@@ -27,15 +27,17 @@ scp -P "$SSH_PORT" -r \
     "$SCRIPT_DIR/config" \
     "$SCRIPT_DIR/scripts" \
     "$SCRIPT_DIR/nftables" \
+    "$SCRIPT_DIR/api" \
     "$SCRIPT_DIR/services" \
     "$SCRIPT_DIR/cron" \
+    "$SCRIPT_DIR/tests" \
     "$SCRIPT_DIR/install.sh" \
     "$SCRIPT_DIR/uninstall.sh" \
     "$SCRIPT_DIR/README.md" \
     "$ROUTER_USER@$ROUTER_IP:$REMOTE_DEST/"
 
 echo "[INFO] Setting execute permissions on router..."
-ssh -p "$SSH_PORT" "$ROUTER_USER@$ROUTER_IP" "chmod +x $REMOTE_DEST/install.sh $REMOTE_DEST/uninstall.sh $REMOTE_DEST/scripts/*.py $REMOTE_DEST/services/*.init"
+ssh -p "$SSH_PORT" "$ROUTER_USER@$ROUTER_IP" "chmod +x $REMOTE_DEST/install.sh $REMOTE_DEST/uninstall.sh $REMOTE_DEST/scripts/*.py $REMOTE_DEST/api/*.py $REMOTE_DEST/services/*.init $REMOTE_DEST/tests/*.sh 2>/dev/null || true"
 
 echo ""
 echo "=========================================================="

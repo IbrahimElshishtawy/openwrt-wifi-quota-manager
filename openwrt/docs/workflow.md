@@ -1,6 +1,6 @@
 # Operational Workflow (`openwrt/docs/workflow.md`)
 
-This document details the step-by-step lifecycle of a client device connecting to the Wi-Fi network and how bandwidth consumption is monitored and enforced.
+This document details the step-by-step lifecycle of a client device connecting to the Wi-Fi network, tracking bandwidth, receiving quota warnings, triggering firewall blocks, and unblocking upon cycle reset.
 
 ---
 
@@ -16,6 +16,7 @@ sequenceDiagram
     participant Cron as Cron / procd
     participant Quota as check_quota.py
     participant Nft as nftables (blocked_devices)
+    actor Flutter as Flutter Mobile App
 
     Note over Client,Router: 1. Association & Lease
     Client->>Router: Associates with Wi-Fi & requests DHCP IP
@@ -23,24 +24,34 @@ sequenceDiagram
 
     Note over Client,Kernel: 2. Traffic Flow & Accounting
     Client->>Kernel: Transmits internet packets (WAN forward)
-    Kernel->>Nlbwmon: In-kernel counters record rx_bytes and tx_bytes by MAC
+    Kernel->>Nlbwmon: In-kernel netfilter counters record rx_bytes and tx_bytes by MAC
 
-    Note over Cron,Quota: 3. Periodic Quota Audit
-    Cron->>Quota: Triggers execution (every 1 minute)
-    Quota->>Router: Reads devices.json & parses DHCP/ARP
-    Quota->>Nlbwmon: Calls 'ubus call nlbwmon query' via UsageManager
+    Note over Cron,Quota: 3. Periodic Quota Audit (Every 1 Minute)
+    Cron->>Quota: Triggers check_quota.py
+    Quota->>Router: Reads devices.json & parses DHCP leases / ARP
+    Quota->>Nlbwmon: Queries 'ubus call nlbwmon query'
     Nlbwmon-->>Quota: Returns JSON bandwidth counters
 
-    Note over Quota,Nft: 4. Evaluation & Enforcement
-    alt Usage > Quota Limit OR enabled == false
+    Note over Quota,Nft: 4. Evaluation & Threshold Warning
+    opt Usage >= 80%, 90%, 95%, or 100%
+        Quota->>Quota: Logs warning event (once per period in /tmp/quota_warning_state.json)
+    end
+
+    alt Usage >= Quota Limit OR enabled == false
         Quota->>Nft: nft add element inet quota_manager blocked_devices { MAC }
-        Nft-->>Kernel: Packets from/to MAC dropped at forward priority -5
-        Client--xKernel: Internet access blocked
-    else Usage <= Quota Limit AND enabled == true
+        Nft-->>Kernel: Forwarded transit packets from/to MAC dropped at priority -5
+        Client--xKernel: Internet access blocked (Router admin still accessible)
+    else Usage < Quota Limit AND enabled == true
         Quota->>Nft: nft delete element inet quota_manager blocked_devices { MAC }
         Nft-->>Kernel: MAC removed from drop set
         Client->>Kernel: Internet traffic flows normally
     end
+
+    Note over Flutter,Quota: 5. Mobile App Monitoring & Administration
+    Flutter->>Router: GET http://192.168.1.1:8080/devices
+    Router-->>Flutter: JSON device list with usage, remaining quota, and status
+    Flutter->>Router: POST http://192.168.1.1:8080/quota (update limit)
+    Router-->>Flutter: 200 OK & immediate firewall adjustment
 ```
 
 ---
@@ -48,36 +59,39 @@ sequenceDiagram
 ## 📝 Lifecycle Phases
 
 ### Phase 1: Device Connection & Discovery
-1. The client device connects to the OpenWrt access point (SSID).
-2. OpenWrt's `dnsmasq` server allocates an IP address and records the lease in `/tmp/dhcp.leases` with:
+1. The client device connects to the OpenWrt access point.
+2. `dnsmasq` allocates an IP address and records the lease in `/tmp/dhcp.leases` with:
    - Expiry timestamp
    - Client MAC address
    - Assigned IP address
    - Client hostname (e.g. `Ahmed-Phone`)
-3. `device_manager.py` can immediately discover this device and cross-reference its MAC against `openwrt/config/devices.json`.
+3. `device_manager.py` discovers this device and cross-references its MAC against `devices.json`.
 
-### Phase 2: Traffic Monitoring (`nlbwmon`)
+### Phase 2: Bandwidth Accounting (`nlbwmon`)
 1. Traffic flowing between the local network (`br-lan`) and the WAN gateway is tracked passively by `nlbwmon`.
-2. `nlbwmon` associates all incoming and outgoing bytes with the specific hardware MAC address of the source/destination device.
-3. Statistics are stored in RAM (`/tmp/nlbwmon.db`) and refreshed continuously.
+2. Statistics are stored in RAM (`/tmp/nlbwmon.db`) and refreshed continuously.
 
-### Phase 3: Quota Inspection Loop
+### Phase 3: Quota Inspection Loop & Warning Thresholds
 1. Every minute, the OpenWrt cron scheduler triggers `check_quota.py`.
-2. **Device List Retrieval**: `device_manager.py` parses `devices.json` and normalizes all MAC addresses.
-3. **Usage Query**: `usage_manager.py` queries `ubus call nlbwmon query` and converts byte totals to Gigabytes.
-4. **Policy Comparison**:
-   $$\text{Decision} = \begin{cases} \text{BLOCK} & \text{if } \text{enabled} = \text{false} \lor \text{usage\_gb} > \text{quota\_gb} \\ \text{ALLOW} & \text{if } \text{enabled} = \text{true} \land \text{usage\_gb} \le \text{quota\_gb} \end{cases}$$
+2. **Usage Calculation**: `usage_manager.py` extracts byte counters from `ubus call nlbwmon query`.
+3. **Threshold Check**: If usage reaches 80%, 90%, 95%, or 100%, a warning is logged. Duplicate warnings in the same billing period are prevented by `/tmp/quota_warning_state.json`.
 
 ### Phase 4: Access Enforcement (`nftables`)
-1. If **BLOCK**:
+1. If **EXCEEDED**:
    - `check_quota.py` executes:
      ```bash
      nft add element inet quota_manager blocked_devices { AA:BB:CC:DD:EE:FF }
      ```
-   - Future forwarded packets matching this MAC are dropped immediately at the raw forward chain hook before NAT or routing.
-2. If **ALLOW**:
+   - Packets from this MAC traversing the forward chain to the internet are dropped immediately.
+   - Management connections to the router (`http://192.168.1.1`, SSH, DNS, DHCP) remain active.
+2. If **ALLOWED**:
    - `check_quota.py` executes:
      ```bash
      nft delete element inet quota_manager blocked_devices { AA:BB:CC:DD:EE:FF }
      ```
-   - Device resumes unrestricted access.
+
+### Phase 5: Quota Period Reset
+1. When the billing cycle ends (or upon administrator reset via `check_quota.py --reset` or `POST /reset`):
+   - Warning state file is reset.
+   - All enabled devices are removed from the `blocked_devices` set in `nftables`.
+   - Normal traffic flow resumes for the new billing period.
