@@ -1,3 +1,4 @@
+// ignore_for_file: prefer_initializing_formals
 import '../../features/dashboard/presentation/controllers/dashboard_state.dart';
 import '../../features/devices/domain/models/device_model.dart';
 import '../constants/api_endpoints.dart';

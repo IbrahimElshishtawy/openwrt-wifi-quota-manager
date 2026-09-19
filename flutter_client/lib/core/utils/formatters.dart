@@ -16,6 +16,36 @@ class Formatters {
     }
   }
 
+  static String formatBytes(int bytes) {
+    if (bytes < 1024) {
+      return '$bytes B';
+    } else if (bytes < 1024 * 1024) {
+      final kb = bytes / 1024;
+      return '${kb.toStringAsFixed(1)} KB';
+    } else if (bytes < 1024 * 1024 * 1024) {
+      final mb = bytes / (1024 * 1024);
+      return '${mb.toStringAsFixed(2)} MB';
+    } else {
+      final gb = bytes / (1024 * 1024 * 1024);
+      return '${gb.toStringAsFixed(2)} GB';
+    }
+  }
+
+  static String formatUptime(int uptimeSeconds) {
+    if (uptimeSeconds <= 0) return '0m';
+    final days = uptimeSeconds ~/ 86400;
+    final hours = (uptimeSeconds % 86400) ~/ 3600;
+    final minutes = (uptimeSeconds % 3600) ~/ 60;
+
+    if (days > 0) {
+      return '${days}d ${hours}h ${minutes}m';
+    } else if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    } else {
+      return '${minutes}m';
+    }
+  }
+
   static String percentage(double used, double total) {
     if (total <= 0) return '0%';
     final pct = (used / total) * 100;

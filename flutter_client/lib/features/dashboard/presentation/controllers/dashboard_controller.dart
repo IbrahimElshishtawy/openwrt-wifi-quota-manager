@@ -1,3 +1,4 @@
+// ignore_for_file: prefer_initializing_formals
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/di/providers.dart';
