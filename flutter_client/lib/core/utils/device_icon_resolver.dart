@@ -54,6 +54,12 @@ class DeviceIconResolver {
       return DeviceType.laptop;
     }
 
+    if (query.contains('ipad') ||
+        query.contains('tablet') ||
+        query.contains('tab')) {
+      return DeviceType.tablet;
+    }
+
     if (query.contains('iphone') ||
         query.contains('galaxy') ||
         query.contains('pixel') ||
@@ -62,12 +68,6 @@ class DeviceIconResolver {
         query.contains('redmi') ||
         query.contains('xiaomi')) {
       return DeviceType.phone;
-    }
-
-    if (query.contains('ipad') ||
-        query.contains('tablet') ||
-        query.contains('tab')) {
-      return DeviceType.tablet;
     }
 
     if (query.contains('desktop') ||
