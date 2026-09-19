@@ -155,8 +155,8 @@ void main() {
       );
 
       expect(find.text('Recent Activity'), findsOneWidget);
-      expect(find.text('Device unblocked'), findsOneWidget);
-      expect(find.text('Quota updated'), findsOneWidget);
+      expect(find.textContaining('Device unblocked'), findsOneWidget);
+      expect(find.textContaining('Quota updated'), findsOneWidget);
     });
   });
 

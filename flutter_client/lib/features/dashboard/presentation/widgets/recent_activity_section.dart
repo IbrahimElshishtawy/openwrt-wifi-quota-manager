@@ -153,10 +153,10 @@ class RecentActivitySection extends StatelessWidget {
 
                   // Event Title and Device Info
                   Expanded(
-                    child: RichText(
+                    child: Text.rich(
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      text: TextSpan(
+                      TextSpan(
                         children: [
                           TextSpan(
                             text: event.title,
