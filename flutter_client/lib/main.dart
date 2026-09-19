@@ -8,11 +8,7 @@ import 'core/storage/isar_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 1. Initialize SharedPreferences for instant key-value configs
   final sharedPreferences = await SharedPreferences.getInstance();
-
-  // 2. Initialize Isar NoSQL Database for offline-first telemetry and caching
   final isarService = IsarService();
   await isarService.init();
 
