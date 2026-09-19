@@ -8,4 +8,6 @@ abstract class DeviceRepository {
     required bool enabled,
   });
   Future<void> toggleDeviceBlock({required String mac, required bool block});
+  Future<void> blockDevice(String mac);
+  Future<void> unblockDevice(String mac);
 }

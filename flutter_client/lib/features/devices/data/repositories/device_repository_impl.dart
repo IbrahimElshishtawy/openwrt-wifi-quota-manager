@@ -75,15 +75,41 @@ class DeviceRepositoryImpl implements DeviceRepository {
   }
 
   @override
-  Future<void> toggleDeviceBlock({required String mac, required bool block}) async {
+  Future<void> blockDevice(String mac) async {
+    await remoteDataSource.blockDevice(mac);
+
     final cached = await localDataSource.getCachedDevices();
     final index = cached.indexWhere((d) => d.mac.toUpperCase() == mac.toUpperCase());
-    final currentQuota = index != -1 ? cached[index].quotaGb : 10.0;
+    if (index != -1) {
+      final updated = cached[index].copyWith(
+        isBlocked: true,
+        enabled: false,
+      );
+      await localDataSource.updateCachedDevice(updated);
+    }
+  }
 
-    await updateQuota(
-      mac: mac,
-      quotaGb: currentQuota,
-      enabled: !block,
-    );
+  @override
+  Future<void> unblockDevice(String mac) async {
+    await remoteDataSource.unblockDevice(mac);
+
+    final cached = await localDataSource.getCachedDevices();
+    final index = cached.indexWhere((d) => d.mac.toUpperCase() == mac.toUpperCase());
+    if (index != -1) {
+      final updated = cached[index].copyWith(
+        isBlocked: false,
+        enabled: true,
+      );
+      await localDataSource.updateCachedDevice(updated);
+    }
+  }
+
+  @override
+  Future<void> toggleDeviceBlock({required String mac, required bool block}) async {
+    if (block) {
+      await blockDevice(mac);
+    } else {
+      await unblockDevice(mac);
+    }
   }
 }

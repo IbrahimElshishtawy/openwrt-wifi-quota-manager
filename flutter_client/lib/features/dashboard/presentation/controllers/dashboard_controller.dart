@@ -2,9 +2,12 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/di/providers.dart';
 import '../../../../core/network/mock_data_generator.dart';
+import '../../../../core/network/openwrt_client.dart';
+import '../../../devices/domain/models/device_model.dart';
 import '../../../devices/domain/repositories/device_repository.dart';
 import '../../../settings/presentation/controllers/settings_controller.dart';
 import '../../domain/models/network_activity_event.dart';
+import '../../domain/models/quota_report.dart';
 import '../../domain/repositories/dashboard_repository.dart';
 import 'dashboard_state.dart';
 
@@ -12,11 +15,13 @@ final dashboardControllerProvider =
     StateNotifierProvider<DashboardController, DashboardState>((ref) {
   final dashboardRepo = ref.watch(dashboardRepositoryProvider);
   final deviceRepo = ref.watch(deviceRepositoryProvider);
+  final openWrtClient = ref.watch(openWrtClientProvider);
   final settings = ref.watch(settingsControllerProvider);
 
   final controller = DashboardController(
     dashboardRepository: dashboardRepo,
     deviceRepository: deviceRepo,
+    openWrtClient: openWrtClient,
     initialRefreshInterval: settings.refreshInterval,
     isDemoMode: settings.isDemoMode,
   );
@@ -44,15 +49,20 @@ final dashboardControllerProvider =
 class DashboardController extends StateNotifier<DashboardState> {
   final DashboardRepository _dashboardRepository;
   final DeviceRepository _deviceRepository;
+  final OpenWrtClient _openWrtClient;
   bool _isDemoMode;
   Timer? _pollingTimer;
 
   DashboardController({
-    required this._dashboardRepository,
-    required this._deviceRepository,
+    required DashboardRepository dashboardRepository,
+    required DeviceRepository deviceRepository,
+    required OpenWrtClient openWrtClient,
     int initialRefreshInterval = 15,
     bool isDemoMode = false,
-  })  : _isDemoMode = isDemoMode,
+  })  : _dashboardRepository = dashboardRepository,
+        _deviceRepository = deviceRepository,
+        _openWrtClient = openWrtClient,
+        _isDemoMode = isDemoMode,
         super(DashboardState(
           refreshInterval: initialRefreshInterval,
           connectionStatus: isDemoMode
@@ -112,14 +122,40 @@ class DashboardController extends StateNotifier<DashboardState> {
       final devicesFuture = _deviceRepository.getDevices(
         forceRefresh: forceRefresh || !isBackground,
       );
+      final sysInfoFuture = _openWrtClient.getSystemInfo();
 
-      final results = await Future.wait([reportFuture, devicesFuture]);
-      final report = results[0] as dynamic;
-      final devices = results[1] as List<dynamic>;
+      final results = await Future.wait([reportFuture, devicesFuture, sysInfoFuture]);
+      final report = results[0] as QuotaReport;
+      final devices = results[1] as List<DeviceModel>;
+      final sysInfo = results[2] as OpenWrtSystemInfo;
 
       final activeCount = devices.where((d) => d.enabled && !d.isBlocked).length;
       final blockedCount = devices.where((d) => d.isBlocked || !d.enabled).length;
       final nearLimitCount = devices.where((d) => d.isNearLimit).length;
+
+      // Ensure top 5 consumers are calculated from real device traffic data
+      List<TopConsumer> topConsumers = report.topConsumers;
+      if (topConsumers.isEmpty && devices.isNotEmpty) {
+        final sorted = List<DeviceModel>.from(devices)
+          ..sort((a, b) => b.usageGb.compareTo(a.usageGb));
+        topConsumers = sorted.take(5).map((d) {
+          return TopConsumer(
+            mac: d.mac,
+            name: d.name,
+            ip: d.ip,
+            usageGb: d.usageGb,
+            percentage: d.usageRatio * 100,
+          );
+        }).toList();
+      }
+
+      final enrichedReport = QuotaReport(
+        totalBandwidthUsedGb: report.totalBandwidthUsedGb,
+        packageTotalGb: report.packageTotalGb,
+        packageRemainingGb: report.packageRemainingGb,
+        cycleDaysRemaining: report.cycleDaysRemaining,
+        topConsumers: topConsumers.take(5).toList(),
+      );
 
       final connectionStatus = _isDemoMode
           ? DashboardConnectionStatus.demo
@@ -128,8 +164,9 @@ class DashboardController extends StateNotifier<DashboardState> {
       state = state.copyWith(
         status: DashboardStatus.success,
         connectionStatus: connectionStatus,
-        report: report,
-        activeDevices: activeCount > 0 ? activeCount : (report?.topConsumers.length ?? 0),
+        report: enrichedReport,
+        systemInfo: sysInfo,
+        activeDevices: activeCount > 0 ? activeCount : enrichedReport.topConsumers.length,
         blockedDevices: blockedCount,
         nearLimitDevices: nearLimitCount,
         recentActivity: _generateRecentActivities(),
@@ -137,13 +174,13 @@ class DashboardController extends StateNotifier<DashboardState> {
         lastUpdated: DateTime.now(),
       );
     } catch (e) {
-      // Fallback: If cache already exists or we can load local fallback
+      // Offline-First Fallback: retain Isar cached report
       if (state.report != null) {
         state = state.copyWith(
           connectionStatus: _isDemoMode
               ? DashboardConnectionStatus.demo
               : DashboardConnectionStatus.cached,
-          errorMessage: 'Showing cached data',
+          errorMessage: 'Showing cached data from Isar DB',
           lastUpdated: DateTime.now(),
         );
       } else {

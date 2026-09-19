@@ -1,9 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/di/providers.dart';
+import '../../../../core/network/openwrt_client.dart';
 import '../../domain/models/connection_settings.dart';
 import '../../domain/repositories/settings_repository.dart';
 
-final settingsControllerProvider = StateNotifierProvider<SettingsController, ConnectionSettings>((ref) {
+final settingsControllerProvider =
+    StateNotifierProvider<SettingsController, ConnectionSettings>((ref) {
   final repo = ref.watch(settingsRepositoryProvider);
   return SettingsController(repo);
 });
@@ -16,6 +18,9 @@ class SettingsController extends StateNotifier<ConnectionSettings> {
   Future<void> updateSettings({
     String? routerIp,
     int? routerPort,
+    String? protocol,
+    String? username,
+    String? password,
     String? apiKey,
     bool? isDemoMode,
     int? refreshInterval,
@@ -24,6 +29,9 @@ class SettingsController extends StateNotifier<ConnectionSettings> {
     final updated = state.copyWith(
       routerIp: routerIp,
       routerPort: routerPort,
+      protocol: protocol,
+      username: username,
+      password: password,
       apiKey: apiKey,
       isDemoMode: isDemoMode,
       refreshInterval: refreshInterval,
@@ -37,7 +45,7 @@ class SettingsController extends StateNotifier<ConnectionSettings> {
     await updateSettings(isDemoMode: value);
   }
 
-  Future<bool> testConnection() async {
+  Future<ConnectionTestResultInfo> testConnection() async {
     return await _repository.testConnection();
   }
 

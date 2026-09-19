@@ -1,16 +1,15 @@
-import '../../../../core/constants/api_endpoints.dart';
-import '../../../../core/network/api_client.dart';
+import '../../../../core/network/openwrt_client.dart';
 import '../../../../core/storage/preferences_service.dart';
 import '../../domain/models/connection_settings.dart';
 import '../../domain/repositories/settings_repository.dart';
 
 class SettingsRepositoryImpl implements SettingsRepository {
   final PreferencesService preferencesService;
-  final ApiClient apiClient;
+  final OpenWrtClient openWrtClient;
 
   SettingsRepositoryImpl({
     required this.preferencesService,
-    required this.apiClient,
+    required this.openWrtClient,
   });
 
   @override
@@ -18,6 +17,9 @@ class SettingsRepositoryImpl implements SettingsRepository {
     return ConnectionSettings(
       routerIp: preferencesService.routerIp,
       routerPort: preferencesService.routerPort,
+      protocol: preferencesService.routerProtocol,
+      username: preferencesService.routerUsername,
+      password: preferencesService.routerPassword,
       apiKey: preferencesService.apiKey,
       isDemoMode: preferencesService.isDemoMode,
       refreshInterval: preferencesService.refreshInterval,
@@ -29,6 +31,9 @@ class SettingsRepositoryImpl implements SettingsRepository {
   Future<void> saveSettings(ConnectionSettings settings) async {
     await preferencesService.setRouterIp(settings.routerIp);
     await preferencesService.setRouterPort(settings.routerPort);
+    await preferencesService.setRouterProtocol(settings.protocol);
+    await preferencesService.setRouterUsername(settings.username);
+    await preferencesService.setRouterPassword(settings.password);
     await preferencesService.setApiKey(settings.apiKey);
     await preferencesService.setDemoMode(settings.isDemoMode);
     await preferencesService.setRefreshInterval(settings.refreshInterval);
@@ -41,12 +46,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
   }
 
   @override
-  Future<bool> testConnection() async {
-    try {
-      final res = await apiClient.get(ApiEndpoints.reports);
-      return res != null;
-    } catch (_) {
-      return false;
-    }
+  Future<ConnectionTestResultInfo> testConnection() async {
+    return await openWrtClient.testConnection();
   }
 }

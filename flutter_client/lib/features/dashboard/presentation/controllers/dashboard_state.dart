@@ -1,3 +1,4 @@
+import '../../../../core/network/openwrt_client.dart';
 import '../../domain/models/network_activity_event.dart';
 import '../../domain/models/quota_report.dart';
 
@@ -16,6 +17,7 @@ class DashboardState {
   final DashboardStatus status;
   final DashboardConnectionStatus connectionStatus;
   final QuotaReport? report;
+  final OpenWrtSystemInfo? systemInfo;
   final String? errorMessage;
   final int activeDevices;
   final int blockedDevices;
@@ -28,6 +30,7 @@ class DashboardState {
     this.status = DashboardStatus.initial,
     this.connectionStatus = DashboardConnectionStatus.connecting,
     this.report,
+    this.systemInfo,
     this.errorMessage,
     this.activeDevices = 0,
     this.blockedDevices = 0,
@@ -55,6 +58,7 @@ class DashboardState {
     DashboardStatus? status,
     DashboardConnectionStatus? connectionStatus,
     QuotaReport? report,
+    OpenWrtSystemInfo? systemInfo,
     String? errorMessage,
     int? activeDevices,
     int? blockedDevices,
@@ -67,6 +71,7 @@ class DashboardState {
       status: status ?? this.status,
       connectionStatus: connectionStatus ?? this.connectionStatus,
       report: report ?? this.report,
+      systemInfo: systemInfo ?? this.systemInfo,
       errorMessage: errorMessage ?? this.errorMessage,
       activeDevices: activeDevices ?? this.activeDevices,
       blockedDevices: blockedDevices ?? this.blockedDevices,

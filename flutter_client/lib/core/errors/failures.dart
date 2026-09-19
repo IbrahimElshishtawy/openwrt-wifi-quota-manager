@@ -26,3 +26,12 @@ class AuthenticationFailure extends Failure {
 class ValidationFailure extends Failure {
   const ValidationFailure(super.message);
 }
+
+class TimeoutFailure extends Failure {
+  const TimeoutFailure(super.message);
+}
+
+class UnsupportedFeatureFailure extends Failure {
+  final String? missingPackage;
+  const UnsupportedFeatureFailure(super.message, {this.missingPackage});
+}

@@ -1,5 +1,4 @@
-import '../../../../core/constants/api_endpoints.dart';
-import '../../../../core/network/api_client.dart';
+import '../../../../core/network/openwrt_client.dart';
 import '../../domain/models/device_model.dart';
 
 abstract class DeviceRemoteDataSource {
@@ -9,18 +8,18 @@ abstract class DeviceRemoteDataSource {
     required double quotaGb,
     required bool enabled,
   });
+  Future<void> blockDevice(String mac);
+  Future<void> unblockDevice(String mac);
 }
 
 class DeviceRemoteDataSourceImpl implements DeviceRemoteDataSource {
-  final ApiClient _apiClient;
+  final OpenWrtClient _openWrtClient;
 
-  DeviceRemoteDataSourceImpl(this._apiClient);
+  DeviceRemoteDataSourceImpl(this._openWrtClient);
 
   @override
   Future<List<DeviceModel>> fetchDevices() async {
-    final response = await _apiClient.get(ApiEndpoints.devices);
-    final List<dynamic> devicesList = response['devices'] as List<dynamic>? ?? [];
-    return devicesList.map((item) => DeviceModel.fromJson(item as Map<String, dynamic>)).toList();
+    return await _openWrtClient.getConnectedDevices();
   }
 
   @override
@@ -29,13 +28,20 @@ class DeviceRemoteDataSourceImpl implements DeviceRemoteDataSource {
     required double quotaGb,
     required bool enabled,
   }) async {
-    await _apiClient.post(
-      ApiEndpoints.quota,
-      {
-        'mac': mac,
-        'quota_gb': quotaGb,
-        'enabled': enabled,
-      },
+    await _openWrtClient.updateDeviceQuota(
+      mac: mac,
+      quotaGb: quotaGb,
+      enabled: enabled,
     );
+  }
+
+  @override
+  Future<void> blockDevice(String mac) async {
+    await _openWrtClient.blockDevice(mac);
+  }
+
+  @override
+  Future<void> unblockDevice(String mac) async {
+    await _openWrtClient.unblockDevice(mac);
   }
 }

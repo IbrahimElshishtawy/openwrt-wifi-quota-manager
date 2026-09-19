@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../network/api_client.dart';
+import '../network/openwrt_client.dart';
+import '../security/credential_storage.dart';
 import '../storage/isar_service.dart';
 import '../storage/preferences_service.dart';
 
@@ -18,9 +20,14 @@ import '../../features/devices/domain/repositories/device_repository.dart';
 import '../../features/settings/data/repositories/settings_repository_impl.dart';
 import '../../features/settings/domain/repositories/settings_repository.dart';
 
-// --- Core Storage & Network Providers ---
+// --- Core Storage & Security Providers ---
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError('sharedPreferencesProvider must be overridden in ProviderScope');
+});
+
+final credentialStorageProvider = Provider<CredentialStorage>((ref) {
+  final prefs = ref.watch(sharedPreferencesProvider);
+  return CredentialStorage(prefs);
 });
 
 final isarServiceProvider = Provider<IsarService>((ref) {
@@ -29,18 +36,29 @@ final isarServiceProvider = Provider<IsarService>((ref) {
 
 final preferencesServiceProvider = Provider<PreferencesService>((ref) {
   final prefs = ref.watch(sharedPreferencesProvider);
-  return PreferencesService(prefs);
+  final creds = ref.watch(credentialStorageProvider);
+  return PreferencesService(prefs, creds);
 });
 
+// --- Core Network Providers ---
 final apiClientProvider = Provider<ApiClient>((ref) {
   final prefService = ref.watch(preferencesServiceProvider);
   return ApiClient(preferencesService: prefService);
 });
 
+final openWrtClientProvider = Provider<OpenWrtClient>((ref) {
+  final client = ref.watch(apiClientProvider);
+  final prefService = ref.watch(preferencesServiceProvider);
+  return OpenWrtClientImpl(
+    apiClient: client,
+    preferencesService: prefService,
+  );
+});
+
 // --- Devices Providers ---
 final deviceRemoteDataSourceProvider = Provider<DeviceRemoteDataSource>((ref) {
-  final client = ref.watch(apiClientProvider);
-  return DeviceRemoteDataSourceImpl(client);
+  final openWrtClient = ref.watch(openWrtClientProvider);
+  return DeviceRemoteDataSourceImpl(openWrtClient);
 });
 
 final deviceLocalDataSourceProvider = Provider<DeviceLocalDataSource>((ref) {
@@ -86,9 +104,9 @@ final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) {
 // --- Settings Providers ---
 final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
   final prefService = ref.watch(preferencesServiceProvider);
-  final client = ref.watch(apiClientProvider);
+  final openWrt = ref.watch(openWrtClientProvider);
   return SettingsRepositoryImpl(
     preferencesService: prefService,
-    apiClient: client,
+    openWrtClient: openWrt,
   );
 });
