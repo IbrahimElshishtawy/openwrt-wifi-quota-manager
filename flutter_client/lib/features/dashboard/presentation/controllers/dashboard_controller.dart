@@ -48,13 +48,11 @@ class DashboardController extends StateNotifier<DashboardState> {
   Timer? _pollingTimer;
 
   DashboardController({
-    required DashboardRepository dashboardRepository,
-    required DeviceRepository deviceRepository,
+    required this._dashboardRepository,
+    required this._deviceRepository,
     int initialRefreshInterval = 15,
     bool isDemoMode = false,
-  })  : _dashboardRepository = dashboardRepository,
-        _deviceRepository = deviceRepository,
-        _isDemoMode = isDemoMode,
+  })  : _isDemoMode = isDemoMode,
         super(DashboardState(
           refreshInterval: initialRefreshInterval,
           connectionStatus: isDemoMode
