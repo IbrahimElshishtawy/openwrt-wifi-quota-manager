@@ -70,8 +70,26 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
     required int activeDevicesCount,
     required int blockedDevicesCount,
   }) async {
+    final now = DateTime.now();
+    final lastLog = await _isarService.historyLogs.where().sortByTimestampDesc().findFirst();
+
+    if (lastLog != null && now.difference(lastLog.timestamp).inMinutes < 15) {
+      lastLog
+        ..totalBandwidthUsedGb = totalBandwidthUsedGb
+        ..packageTotalGb = packageTotalGb
+        ..packageRemainingGb = packageRemainingGb
+        ..activeDevicesCount = activeDevicesCount
+        ..blockedDevicesCount = blockedDevicesCount
+        ..timestamp = now;
+
+      await _isarService.isar.writeTxn(() async {
+        await _isarService.historyLogs.put(lastLog);
+      });
+      return;
+    }
+
     final log = BandwidthHistoryLog()
-      ..timestamp = DateTime.now()
+      ..timestamp = now
       ..totalBandwidthUsedGb = totalBandwidthUsedGb
       ..packageTotalGb = packageTotalGb
       ..packageRemainingGb = packageRemainingGb
