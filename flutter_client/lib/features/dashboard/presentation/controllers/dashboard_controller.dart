@@ -1,29 +1,90 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/di/providers.dart';
+import '../../../../core/network/mock_data_generator.dart';
+import '../../../devices/domain/repositories/device_repository.dart';
+import '../../../settings/presentation/controllers/settings_controller.dart';
+import '../../domain/models/network_activity_event.dart';
 import '../../domain/repositories/dashboard_repository.dart';
 import 'dashboard_state.dart';
 
-final dashboardControllerProvider = StateNotifierProvider<DashboardController, DashboardState>((ref) {
-  final repo = ref.watch(dashboardRepositoryProvider);
-  final controller = DashboardController(repo);
+final dashboardControllerProvider =
+    StateNotifierProvider<DashboardController, DashboardState>((ref) {
+  final dashboardRepo = ref.watch(dashboardRepositoryProvider);
+  final deviceRepo = ref.watch(deviceRepositoryProvider);
+  final settings = ref.watch(settingsControllerProvider);
+
+  final controller = DashboardController(
+    dashboardRepository: dashboardRepo,
+    deviceRepository: deviceRepo,
+    initialRefreshInterval: settings.refreshInterval,
+    isDemoMode: settings.isDemoMode,
+  );
+
+  // Reactively adjust polling interval when user adjusts slider in Settings
+  ref.listen(settingsControllerProvider.select((s) => s.refreshInterval),
+      (prev, next) {
+    if (next != prev) {
+      controller.updateRefreshInterval(next);
+    }
+  });
+
+  // Reload data when demo mode toggles
+  ref.listen(settingsControllerProvider.select((s) => s.isDemoMode),
+      (prev, next) {
+    if (next != prev) {
+      controller.setDemoMode(next);
+    }
+  });
+
   ref.onDispose(() => controller.disposeTimer());
   return controller;
 });
 
 class DashboardController extends StateNotifier<DashboardState> {
-  final DashboardRepository _repository;
+  final DashboardRepository _dashboardRepository;
+  final DeviceRepository _deviceRepository;
+  bool _isDemoMode;
   Timer? _pollingTimer;
 
-  DashboardController(this._repository)
-      : super(DashboardState(lastUpdated: DateTime.now())) {
+  DashboardController({
+    required DashboardRepository dashboardRepository,
+    required DeviceRepository deviceRepository,
+    int initialRefreshInterval = 15,
+    bool isDemoMode = false,
+  })  : _dashboardRepository = dashboardRepository,
+        _deviceRepository = deviceRepository,
+        _isDemoMode = isDemoMode,
+        super(DashboardState(
+          refreshInterval: initialRefreshInterval,
+          connectionStatus: isDemoMode
+              ? DashboardConnectionStatus.demo
+              : DashboardConnectionStatus.connecting,
+          lastUpdated: DateTime.now(),
+        )) {
     loadData();
-    startPolling(intervalSeconds: 10);
+    startPolling(intervalSeconds: initialRefreshInterval);
   }
 
-  void startPolling({int intervalSeconds = 10}) {
+  void updateRefreshInterval(int seconds) {
+    state = state.copyWith(refreshInterval: seconds);
+    startPolling(intervalSeconds: seconds);
+  }
+
+  void setDemoMode(bool isDemo) {
+    _isDemoMode = isDemo;
+    state = state.copyWith(
+      connectionStatus: isDemo
+          ? DashboardConnectionStatus.demo
+          : DashboardConnectionStatus.connecting,
+    );
+    loadData(forceRefresh: true);
+  }
+
+  void startPolling({int? intervalSeconds}) {
+    final interval = intervalSeconds ?? state.refreshInterval;
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(Duration(seconds: intervalSeconds), (_) {
+    _pollingTimer = Timer.periodic(Duration(seconds: interval), (_) {
       loadData(isBackground: true);
     });
   }
@@ -32,33 +93,68 @@ class DashboardController extends StateNotifier<DashboardState> {
     _pollingTimer?.cancel();
   }
 
-  Future<void> loadData({bool isBackground = false}) async {
-    if (!isBackground && state.status != DashboardStatus.success) {
+  List<NetworkActivityEvent> _generateRecentActivities() {
+    return MockDataGenerator.mockActivities
+        .map((a) => NetworkActivityEvent.fromJson(a))
+        .toList();
+  }
+
+  Future<void> loadData({
+    bool isBackground = false,
+    bool forceRefresh = false,
+  }) async {
+    if (!isBackground && state.status != DashboardStatus.success && state.report == null) {
       state = state.copyWith(status: DashboardStatus.loading);
     }
 
     try {
-      final report = await _repository.getQuotaReport(forceRefresh: !isBackground);
+      final reportFuture = _dashboardRepository.getQuotaReport(
+        forceRefresh: forceRefresh || !isBackground,
+      );
+      final devicesFuture = _deviceRepository.getDevices(
+        forceRefresh: forceRefresh || !isBackground,
+      );
+
+      final results = await Future.wait([reportFuture, devicesFuture]);
+      final report = results[0] as dynamic;
+      final devices = results[1] as List<dynamic>;
+
+      final activeCount = devices.where((d) => d.enabled && !d.isBlocked).length;
+      final blockedCount = devices.where((d) => d.isBlocked || !d.enabled).length;
+      final nearLimitCount = devices.where((d) => d.isNearLimit).length;
+
+      final connectionStatus = _isDemoMode
+          ? DashboardConnectionStatus.demo
+          : DashboardConnectionStatus.online;
+
       state = state.copyWith(
         status: DashboardStatus.success,
+        connectionStatus: connectionStatus,
         report: report,
-        isOffline: false,
+        activeDevices: activeCount > 0 ? activeCount : (report?.topConsumers.length ?? 0),
+        blockedDevices: blockedCount,
+        nearLimitDevices: nearLimitCount,
+        recentActivity: _generateRecentActivities(),
         errorMessage: null,
         lastUpdated: DateTime.now(),
       );
     } catch (e) {
-      // If we already had a report (e.g. from cache or previous fetch)
+      // Fallback: If cache already exists or we can load local fallback
       if (state.report != null) {
         state = state.copyWith(
-          isOffline: true,
-          errorMessage: 'Offline: Showing cached data',
+          connectionStatus: _isDemoMode
+              ? DashboardConnectionStatus.demo
+              : DashboardConnectionStatus.cached,
+          errorMessage: 'Showing cached data',
           lastUpdated: DateTime.now(),
         );
       } else {
         state = state.copyWith(
           status: DashboardStatus.error,
+          connectionStatus: _isDemoMode
+              ? DashboardConnectionStatus.demo
+              : DashboardConnectionStatus.error,
           errorMessage: e.toString(),
-          isOffline: true,
           lastUpdated: DateTime.now(),
         );
       }

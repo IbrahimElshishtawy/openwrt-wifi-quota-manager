@@ -1,19 +1,25 @@
 class TopConsumer {
   final String mac;
   final String name;
+  final String ip;
   final double usageGb;
+  final double? percentage;
 
   const TopConsumer({
     required this.mac,
     required this.name,
+    this.ip = '192.168.1.1',
     required this.usageGb,
+    this.percentage,
   });
 
   factory TopConsumer.fromJson(Map<String, dynamic> json) {
     return TopConsumer(
       mac: (json['mac'] as String?)?.toUpperCase() ?? '00:00:00:00:00:00',
       name: json['name'] as String? ?? 'Device',
+      ip: json['ip'] as String? ?? '192.168.1.1',
       usageGb: (json['usage_gb'] as num?)?.toDouble() ?? 0.0,
+      percentage: (json['percentage'] as num?)?.toDouble(),
     );
   }
 
@@ -21,7 +27,9 @@ class TopConsumer {
     return {
       'mac': mac,
       'name': name,
+      'ip': ip,
       'usage_gb': usageGb,
+      if (percentage != null) 'percentage': percentage,
     };
   }
 }
