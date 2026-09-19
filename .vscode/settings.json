@@ -1,0 +1,14 @@
+{
+  "python.analysis.extraPaths": [
+    ".",
+    "openwrt/scripts",
+    "openwrt/api",
+    "openwrt/tests"
+  ],
+  "python.autoComplete.extraPaths": [
+    ".",
+    "openwrt/scripts",
+    "openwrt/api",
+    "openwrt/tests"
+  ]
+}

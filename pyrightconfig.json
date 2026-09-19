@@ -1,0 +1,8 @@
+{
+  "extraPaths": [
+    ".",
+    "openwrt/scripts",
+    "openwrt/api",
+    "openwrt/tests"
+  ]
+}

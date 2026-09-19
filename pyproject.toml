@@ -1,0 +1,16 @@
+[tool.pyrefly]
+preset = "basic"
+search-path = [
+    ".",
+    "openwrt/scripts",
+    "openwrt/api",
+    "openwrt/tests",
+]
+
+[tool.pyright]
+extraPaths = [
+    ".",
+    "openwrt/scripts",
+    "openwrt/api",
+    "openwrt/tests",
+]
