@@ -53,6 +53,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   final OpenWrtClient _openWrtClient;
   bool _isDemoMode;
   Timer? _pollingTimer;
+  bool _isFetching = false;
 
   DashboardController({
     required DashboardRepository dashboardRepository,
@@ -103,6 +104,10 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   List<NetworkActivityEvent> _generateRecentActivities() {
+    // Never inject simulated mock activities if Demo Mode is disabled
+    if (!_isDemoMode) {
+      return const [];
+    }
     return MockDataGenerator.mockActivities
         .map((a) => NetworkActivityEvent.fromJson(a))
         .toList();
@@ -112,6 +117,10 @@ class DashboardController extends StateNotifier<DashboardState> {
     bool isBackground = false,
     bool forceRefresh = false,
   }) async {
+    // Guard against overlapping concurrent requests (e.g. from 5s polling or manual refresh)
+    if (_isFetching) return;
+    _isFetching = true;
+
     if (!isBackground && state.status != DashboardStatus.success && state.report == null) {
       state = state.copyWith(status: DashboardStatus.loading);
     }
@@ -194,6 +203,8 @@ class DashboardController extends StateNotifier<DashboardState> {
           lastUpdated: DateTime.now(),
         );
       }
+    } finally {
+      _isFetching = false;
     }
   }
 }

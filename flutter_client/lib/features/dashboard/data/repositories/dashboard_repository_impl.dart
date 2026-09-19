@@ -23,8 +23,8 @@ class DashboardRepositoryImpl implements DashboardRepository {
         totalBandwidthUsedGb: remoteReport.totalBandwidthUsedGb,
         packageTotalGb: remoteReport.packageTotalGb,
         packageRemainingGb: remoteReport.packageRemainingGb,
-        activeDevicesCount: 5,
-        blockedDevicesCount: 1,
+        activeDevicesCount: remoteReport.topConsumers.length,
+        blockedDevicesCount: 0,
       );
       return remoteReport;
     } catch (e) {

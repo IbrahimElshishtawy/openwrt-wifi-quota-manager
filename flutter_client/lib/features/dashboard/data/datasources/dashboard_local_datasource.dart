@@ -70,6 +70,15 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
     required int activeDevicesCount,
     required int blockedDevicesCount,
   }) async {
+    // If cached devices exist in Isar, use live counts
+    final cachedDevices = await _isarService.devices.where().findAll();
+    final finalActive = cachedDevices.isNotEmpty
+        ? cachedDevices.where((d) => d.enabled && !d.isBlocked).length
+        : activeDevicesCount;
+    final finalBlocked = cachedDevices.isNotEmpty
+        ? cachedDevices.where((d) => d.isBlocked || !d.enabled).length
+        : blockedDevicesCount;
+
     final now = DateTime.now();
     final lastLog = await _isarService.historyLogs.where().sortByTimestampDesc().findFirst();
 
@@ -78,8 +87,8 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
         ..totalBandwidthUsedGb = totalBandwidthUsedGb
         ..packageTotalGb = packageTotalGb
         ..packageRemainingGb = packageRemainingGb
-        ..activeDevicesCount = activeDevicesCount
-        ..blockedDevicesCount = blockedDevicesCount
+        ..activeDevicesCount = finalActive
+        ..blockedDevicesCount = finalBlocked
         ..timestamp = now;
 
       await _isarService.isar.writeTxn(() async {
@@ -93,8 +102,8 @@ class DashboardLocalDataSourceImpl implements DashboardLocalDataSource {
       ..totalBandwidthUsedGb = totalBandwidthUsedGb
       ..packageTotalGb = packageTotalGb
       ..packageRemainingGb = packageRemainingGb
-      ..activeDevicesCount = activeDevicesCount
-      ..blockedDevicesCount = blockedDevicesCount;
+      ..activeDevicesCount = finalActive
+      ..blockedDevicesCount = finalBlocked;
 
     await _isarService.isar.writeTxn(() async {
       await _isarService.historyLogs.put(log);

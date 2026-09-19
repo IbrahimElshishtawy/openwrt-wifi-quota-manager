@@ -21,9 +21,14 @@ start_service() {
 
     # 2. Register REST API daemon with procd supervisor
     if [ -f "$APP_DIR/api/api_usage.py" ]; then
-        logger -t quota-manager "Starting persistent REST API daemon on port 8080"
+        local api_key="$(uci -q get quota-manager.api.api_key || echo "$QUOTA_API_KEY")"
+        local port="$(uci -q get quota-manager.api.port || echo "8080")"
+        logger -t quota-manager "Starting persistent REST API daemon on port $port"
         procd_open_instance api
-        procd_set_param command "$PYTHON" "$APP_DIR/api/api_usage.py" --port 8080
+        procd_set_param command "$PYTHON" "$APP_DIR/api/api_usage.py" --port "$port"
+        if [ -n "$api_key" ]; then
+            procd_set_param env QUOTA_API_KEY="$api_key"
+        fi
         procd_set_param respawn 3600 5 0
         procd_set_param file "$APP_DIR/config/devices.json"
         procd_set_param stdout 1
