@@ -108,7 +108,7 @@ class DashboardScreen extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: SizedBox(
-                        height: 130,
+                        height: 144,
                         child: NetworkMetricCard(
                           title: 'Active Devices',
                           value: '$activeCount',
@@ -122,7 +122,7 @@ class DashboardScreen extends ConsumerWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: SizedBox(
-                        height: 130,
+                        height: 144,
                         child: NetworkMetricCard(
                           title: 'Blocked (nft)',
                           value: '$blockedCount',
@@ -140,7 +140,7 @@ class DashboardScreen extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: SizedBox(
-                        height: 130,
+                        height: 144,
                         child: NetworkMetricCard(
                           title: 'Billing Cycle',
                           value: '${dashboardState.report!.cycleDaysRemaining} Days',
@@ -153,7 +153,7 @@ class DashboardScreen extends ConsumerWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: SizedBox(
-                        height: 130,
+                        height: 144,
                         child: NetworkMetricCard(
                           title: 'Auto-Refresh',
                           value: '${settings.refreshInterval}s',
