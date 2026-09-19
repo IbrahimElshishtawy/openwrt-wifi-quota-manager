@@ -1,0 +1,94 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../network/api_client.dart';
+import '../storage/isar_service.dart';
+import '../storage/preferences_service.dart';
+
+import '../../features/analytics/data/repositories/analytics_repository_impl.dart';
+import '../../features/analytics/domain/repositories/analytics_repository.dart';
+import '../../features/dashboard/data/datasources/dashboard_local_datasource.dart';
+import '../../features/dashboard/data/datasources/dashboard_remote_datasource.dart';
+import '../../features/dashboard/data/repositories/dashboard_repository_impl.dart';
+import '../../features/dashboard/domain/repositories/dashboard_repository.dart';
+import '../../features/devices/data/datasources/device_local_datasource.dart';
+import '../../features/devices/data/datasources/device_remote_datasource.dart';
+import '../../features/devices/data/repositories/device_repository_impl.dart';
+import '../../features/devices/domain/repositories/device_repository.dart';
+import '../../features/settings/data/repositories/settings_repository_impl.dart';
+import '../../features/settings/domain/repositories/settings_repository.dart';
+
+// --- Core Storage & Network Providers ---
+final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
+  throw UnimplementedError('sharedPreferencesProvider must be overridden in ProviderScope');
+});
+
+final isarServiceProvider = Provider<IsarService>((ref) {
+  throw UnimplementedError('isarServiceProvider must be overridden in ProviderScope');
+});
+
+final preferencesServiceProvider = Provider<PreferencesService>((ref) {
+  final prefs = ref.watch(sharedPreferencesProvider);
+  return PreferencesService(prefs);
+});
+
+final apiClientProvider = Provider<ApiClient>((ref) {
+  final prefService = ref.watch(preferencesServiceProvider);
+  return ApiClient(preferencesService: prefService);
+});
+
+// --- Devices Providers ---
+final deviceRemoteDataSourceProvider = Provider<DeviceRemoteDataSource>((ref) {
+  final client = ref.watch(apiClientProvider);
+  return DeviceRemoteDataSourceImpl(client);
+});
+
+final deviceLocalDataSourceProvider = Provider<DeviceLocalDataSource>((ref) {
+  final isar = ref.watch(isarServiceProvider);
+  return DeviceLocalDataSourceImpl(isar);
+});
+
+final deviceRepositoryProvider = Provider<DeviceRepository>((ref) {
+  final remote = ref.watch(deviceRemoteDataSourceProvider);
+  final local = ref.watch(deviceLocalDataSourceProvider);
+  return DeviceRepositoryImpl(
+    remoteDataSource: remote,
+    localDataSource: local,
+  );
+});
+
+// --- Dashboard Providers ---
+final dashboardRemoteDataSourceProvider = Provider<DashboardRemoteDataSource>((ref) {
+  final client = ref.watch(apiClientProvider);
+  return DashboardRemoteDataSourceImpl(client);
+});
+
+final dashboardLocalDataSourceProvider = Provider<DashboardLocalDataSource>((ref) {
+  final isar = ref.watch(isarServiceProvider);
+  return DashboardLocalDataSourceImpl(isar);
+});
+
+final dashboardRepositoryProvider = Provider<DashboardRepository>((ref) {
+  final remote = ref.watch(dashboardRemoteDataSourceProvider);
+  final local = ref.watch(dashboardLocalDataSourceProvider);
+  return DashboardRepositoryImpl(
+    remoteDataSource: remote,
+    localDataSource: local,
+  );
+});
+
+// --- Analytics Providers ---
+final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) {
+  final isar = ref.watch(isarServiceProvider);
+  return AnalyticsRepositoryImpl(isar);
+});
+
+// --- Settings Providers ---
+final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
+  final prefService = ref.watch(preferencesServiceProvider);
+  final client = ref.watch(apiClientProvider);
+  return SettingsRepositoryImpl(
+    preferencesService: prefService,
+    apiClient: client,
+  );
+});
