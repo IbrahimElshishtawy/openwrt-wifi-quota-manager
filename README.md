@@ -99,27 +99,35 @@ chmod 755 /etc/init.d/qos-server.sh
 - **JSON-RPC**: Communication protocol between app and router.
 - **shell/Lua**: Scripting for network monitoring and control.
 
-### Frontend (Mobile App)
-- **Flutter**: Cross-platform mobile application.
-- **Riverpod**: State management.
-- **Dio**: HTTP client for API communication.
-- **fl_chart**: Charting and visualization.
-- **shared_preferences**: Local data storage.
+### Frontend (Flutter App)
+- **Flutter**: Cross-platform application (Android, Linux, Web).
+- **Riverpod 2.x**: State management and dependency injection.
+- **Isar Database**: High-speed offline-first NoSQL database for telemetry snapshots & cache.
+- **shared_preferences**: Fast persistent connection & app configurations.
+- **Dio**: HTTP client with Bearer Token interceptors and error mappings.
+- **fl_chart**: Interactive time-series bandwidth analytics charts.
 
 ## Project Structure
 
 ```
 openwrt-wifi-quota-manager/
-├── openwrt/                # OpenWrt service scripts and configuration
-│   └── qos-server.sh       # Main service script
-└── flutter_client/         # Flutter mobile application
+├── openwrt/                # OpenWrt router subsystem
+│   ├── config/             # devices.json & quota configuration
+│   ├── scripts/            # check_quota.py, usage_manager.py, device_manager.py
+│   ├── nftables/           # rules.nft firewall rules
+│   └── api/                # REST API specification
+└── flutter_client/         # Clean Architecture Flutter application
     ├── lib/
-    │   ├── screens/        # App screens (dashboard, devices, analytics)
-    │   ├── services/       # API client and network services
-    │   ├── providers/      # Riverpod state providers
-    │   └── main.dart       # App entry point
-    ├── pubspec.yaml        # Project dependencies
-    └── ...
+    │   ├── core/           # Constants, Theme, Errors, Storage (Isar/Prefs), Network (Dio)
+    │   ├── features/       # Feature-First Architecture
+    │   │   ├── dashboard/  # ISP Gauge, Top Consumers, Network Metrics
+    │   │   ├── devices/    # Device List, Search/Filter, Block Toggle, Adjust Quota
+    │   │   ├── analytics/  # 7-Day Usage Charts backed by Isar DB
+    │   │   ├── settings/   # Router IP/Port, API Key, Demo Mode, Polling Rate
+    │   │   └── shell/      # Bottom Navigation Bar Shell
+    │   ├── app.dart        # MaterialApp & Dark Theme
+    │   └── main.dart       # Storage initializers & ProviderScope
+    └── pubspec.yaml        # Dependencies
 ```
 
 ## Contributing
