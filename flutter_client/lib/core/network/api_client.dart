@@ -6,13 +6,12 @@ import 'mock_data_generator.dart';
 
 class ApiClient {
   final Dio _dio;
-  final PreferencesService _preferencesService;
+  final PreferencesService preferencesService;
 
   ApiClient({
-    required PreferencesService preferencesService,
+    required this.preferencesService,
     Dio? dio,
-  })  : _preferencesService = preferencesService,
-        _dio = dio ?? Dio() {
+  }) : _dio = dio ?? Dio() {
     _configureDio();
   }
 
@@ -29,9 +28,9 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          final host = _preferencesService.routerIp;
-          final port = _preferencesService.routerPort;
-          final token = _preferencesService.apiKey;
+          final host = preferencesService.routerIp;
+          final port = preferencesService.routerPort;
+          final token = preferencesService.apiKey;
 
           options.baseUrl = ApiEndpoints.baseUrl(host, port);
           if (token.isNotEmpty) {
@@ -45,7 +44,7 @@ class ApiClient {
 
   Future<dynamic> get(String path) async {
     // If Demo Mode is enabled, return realistic mock data instantly
-    if (_preferencesService.isDemoMode) {
+    if (preferencesService.isDemoMode) {
       await Future.delayed(const Duration(milliseconds: 300));
       if (path == ApiEndpoints.devices) {
         return {'status': 'success', 'devices': MockDataGenerator.mockDevices};
@@ -63,7 +62,7 @@ class ApiClient {
   }
 
   Future<dynamic> post(String path, Map<String, dynamic> data) async {
-    if (_preferencesService.isDemoMode) {
+    if (preferencesService.isDemoMode) {
       await Future.delayed(const Duration(milliseconds: 350));
       if (path == ApiEndpoints.quota) {
         final mac = data['mac'] as String;

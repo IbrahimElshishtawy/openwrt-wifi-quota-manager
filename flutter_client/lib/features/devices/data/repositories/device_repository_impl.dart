@@ -4,25 +4,24 @@ import '../datasources/device_local_datasource.dart';
 import '../datasources/device_remote_datasource.dart';
 
 class DeviceRepositoryImpl implements DeviceRepository {
-  final DeviceRemoteDataSource _remoteDataSource;
-  final DeviceLocalDataSource _localDataSource;
+  final DeviceRemoteDataSource remoteDataSource;
+  final DeviceLocalDataSource localDataSource;
 
   DeviceRepositoryImpl({
-    required DeviceRemoteDataSource remoteDataSource,
-    required DeviceLocalDataSource localDataSource,
-  })  : _remoteDataSource = remoteDataSource,
-        _localDataSource = localDataSource;
+    required this.remoteDataSource,
+    required this.localDataSource,
+  });
 
   @override
   Future<List<DeviceModel>> getDevices({bool forceRefresh = false}) async {
     try {
-      final remoteDevices = await _remoteDataSource.fetchDevices();
+      final remoteDevices = await remoteDataSource.fetchDevices();
       // Cache devices into Isar asynchronously
-      await _localDataSource.cacheDevices(remoteDevices);
+      await localDataSource.cacheDevices(remoteDevices);
       return remoteDevices;
     } catch (e) {
       // Offline-first fallback: Load from Isar database
-      final cached = await _localDataSource.getCachedDevices();
+      final cached = await localDataSource.getCachedDevices();
       if (cached.isNotEmpty) {
         return cached;
       }
@@ -36,14 +35,14 @@ class DeviceRepositoryImpl implements DeviceRepository {
     required double quotaGb,
     required bool enabled,
   }) async {
-    await _remoteDataSource.updateDeviceQuota(
+    await remoteDataSource.updateDeviceQuota(
       mac: mac,
       quotaGb: quotaGb,
       enabled: enabled,
     );
 
     // Fetch updated list or update existing cached item
-    final cached = await _localDataSource.getCachedDevices();
+    final cached = await localDataSource.getCachedDevices();
     final index = cached.indexWhere((d) => d.mac.toUpperCase() == mac.toUpperCase());
     DeviceModel updated;
 
@@ -56,7 +55,7 @@ class DeviceRepositoryImpl implements DeviceRepository {
         remainingGb: (quotaGb - old.usageGb).clamp(0, 9999).toDouble(),
         isBlocked: isBlocked,
       );
-      await _localDataSource.updateCachedDevice(updated);
+      await localDataSource.updateCachedDevice(updated);
     } else {
       updated = DeviceModel(
         mac: mac,
@@ -69,7 +68,7 @@ class DeviceRepositoryImpl implements DeviceRepository {
         enabled: enabled,
         isBlocked: !enabled,
       );
-      await _localDataSource.updateCachedDevice(updated);
+      await localDataSource.updateCachedDevice(updated);
     }
 
     return updated;
@@ -77,7 +76,7 @@ class DeviceRepositoryImpl implements DeviceRepository {
 
   @override
   Future<void> toggleDeviceBlock({required String mac, required bool block}) async {
-    final cached = await _localDataSource.getCachedDevices();
+    final cached = await localDataSource.getCachedDevices();
     final index = cached.indexWhere((d) => d.mac.toUpperCase() == mac.toUpperCase());
     final currentQuota = index != -1 ? cached[index].quotaGb : 10.0;
 

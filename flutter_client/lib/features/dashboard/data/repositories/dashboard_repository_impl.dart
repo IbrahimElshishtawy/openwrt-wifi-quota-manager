@@ -4,23 +4,22 @@ import '../datasources/dashboard_local_datasource.dart';
 import '../datasources/dashboard_remote_datasource.dart';
 
 class DashboardRepositoryImpl implements DashboardRepository {
-  final DashboardRemoteDataSource _remoteDataSource;
-  final DashboardLocalDataSource _localDataSource;
+  final DashboardRemoteDataSource remoteDataSource;
+  final DashboardLocalDataSource localDataSource;
 
   DashboardRepositoryImpl({
-    required DashboardRemoteDataSource remoteDataSource,
-    required DashboardLocalDataSource localDataSource,
-  })  : _remoteDataSource = remoteDataSource,
-        _localDataSource = localDataSource;
+    required this.remoteDataSource,
+    required this.localDataSource,
+  });
 
   @override
   Future<QuotaReport> getQuotaReport({bool forceRefresh = false}) async {
     try {
-      final remoteReport = await _remoteDataSource.fetchQuotaReport();
+      final remoteReport = await remoteDataSource.fetchQuotaReport();
       // Cache into Isar
-      await _localDataSource.cacheReport(remoteReport);
+      await localDataSource.cacheReport(remoteReport);
       // Also record snapshot for time-series analytics
-      await _localDataSource.saveHistorySnapshot(
+      await localDataSource.saveHistorySnapshot(
         totalBandwidthUsedGb: remoteReport.totalBandwidthUsedGb,
         packageTotalGb: remoteReport.packageTotalGb,
         packageRemainingGb: remoteReport.packageRemainingGb,
@@ -30,7 +29,7 @@ class DashboardRepositoryImpl implements DashboardRepository {
       return remoteReport;
     } catch (e) {
       // Fallback to Isar offline cache
-      final cached = await _localDataSource.getCachedReport();
+      final cached = await localDataSource.getCachedReport();
       if (cached != null) {
         return cached;
       }
