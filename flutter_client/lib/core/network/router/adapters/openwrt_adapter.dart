@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import '../../../../features/devices/domain/models/device_model.dart';
 import '../../../constants/api_endpoints.dart';
 import '../../api_client.dart';
@@ -18,11 +20,9 @@ class OpenWrtAdapter implements RouterAdapter {
 
   bool get isConnected => _isConnected;
 
-  OpenWrtAdapter({
-    required OpenWrtClient openWrtClient,
-    ApiClient? apiClient,
-  })  : _openWrtClient = openWrtClient,
-        _apiClient = apiClient;
+  OpenWrtAdapter({required OpenWrtClient openWrtClient, ApiClient? apiClient})
+    : _openWrtClient = openWrtClient,
+      _apiClient = apiClient;
 
   @override
   String get id => 'openwrt';
@@ -132,7 +132,11 @@ class OpenWrtAdapter implements RouterAdapter {
   }
 
   @override
-  Future<void> setQuota(String mac, double quotaGb, {bool enabled = true}) async {
+  Future<void> setQuota(
+    String mac,
+    double quotaGb, {
+    bool enabled = true,
+  }) async {
     await _openWrtClient.updateDeviceQuota(
       mac: mac,
       quotaGb: quotaGb,
