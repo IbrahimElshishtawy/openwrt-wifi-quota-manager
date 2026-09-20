@@ -1,7 +1,7 @@
 import '../../../../features/devices/domain/models/device_model.dart';
-import '../../constants/api_endpoints.dart';
-import '../api_client.dart';
-import '../openwrt_client.dart';
+import '../../../constants/api_endpoints.dart';
+import '../../api_client.dart';
+import '../../openwrt_client.dart';
 import '../router_adapter.dart';
 import '../router_capability.dart';
 import '../router_profile.dart';
@@ -15,6 +15,8 @@ class OpenWrtAdapter implements RouterAdapter {
   final ApiClient? _apiClient;
   RouterConnectionConfig? _currentConfig;
   bool _isConnected = false;
+
+  bool get isConnected => _isConnected;
 
   OpenWrtAdapter({
     required OpenWrtClient openWrtClient,
@@ -107,15 +109,15 @@ class OpenWrtAdapter implements RouterAdapter {
     if (dev == null) return null;
 
     final totalBytes = (dev.usageGb * 1024 * 1024 * 1024).toInt();
-    final rx = (dev.downloadGb * 1024 * 1024 * 1024).toInt();
-    final tx = (dev.uploadGb * 1024 * 1024 * 1024).toInt();
+    final rx = (totalBytes * 0.8).toInt();
+    final tx = (totalBytes * 0.2).toInt();
 
     return DeviceUsage.fromBytes(
       mac: dev.mac,
       ip: dev.ip,
       hostname: dev.hostname,
-      rx: rx > 0 ? rx : (totalBytes * 0.8).toInt(),
-      tx: tx > 0 ? tx : (totalBytes * 0.2).toInt(),
+      rx: rx,
+      tx: tx,
     );
   }
 

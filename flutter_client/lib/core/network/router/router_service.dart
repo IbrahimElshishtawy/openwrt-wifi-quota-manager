@@ -31,6 +31,7 @@ class RouterService {
     ConnectionDiagnostics? diagnostics,
     RouterAdapter? initialAdapter,
   })  : _registry = registry,
+        // ignore: prefer_initializing_formals
         _preferencesService = preferencesService,
         _discovery = discovery ?? RouterDiscovery(),
         _diagnostics = diagnostics ?? ConnectionDiagnostics(),

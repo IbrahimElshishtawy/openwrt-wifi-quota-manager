@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/di/providers.dart';
 import '../../../../core/network/openwrt_client.dart';
+import '../../../../core/network/router/connection_diagnostics.dart';
 import '../../domain/models/connection_settings.dart';
 import '../../domain/repositories/settings_repository.dart';
 

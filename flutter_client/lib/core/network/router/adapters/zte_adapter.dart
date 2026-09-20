@@ -1,6 +1,6 @@
 import '../../../../features/devices/domain/models/device_model.dart';
-import '../../utils/formatters.dart';
-import '../openwrt_client.dart';
+import '../../../utils/formatters.dart';
+import '../../openwrt_client.dart';
 import '../router_adapter.dart';
 import '../router_capability.dart';
 import '../router_profile.dart';
@@ -72,10 +72,8 @@ class ZteAdapter implements RouterAdapter {
           hostname: 'DESKTOP-LAN',
           quotaGb: 0.0,
           usageGb: 0.0,
-          downloadGb: 0.0,
-          uploadGb: 0.0,
+          remainingGb: 0.0,
           enabled: true,
-          status: 'online',
           isBlocked: false,
         ),
         const DeviceModel(
@@ -85,10 +83,8 @@ class ZteAdapter implements RouterAdapter {
           hostname: 'Galaxy-A52',
           quotaGb: 0.0,
           usageGb: 0.0,
-          downloadGb: 0.0,
-          uploadGb: 0.0,
+          remainingGb: 0.0,
           enabled: true,
-          status: 'online',
           isBlocked: false,
         ),
       ];
