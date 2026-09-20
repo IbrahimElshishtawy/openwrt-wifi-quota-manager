@@ -3,6 +3,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../network/api_client.dart';
 import '../network/openwrt_client.dart';
+import '../network/router/adapter_registry.dart';
+import '../network/router/adapters/openwrt_adapter.dart';
+import '../network/router/connection_diagnostics.dart';
+import '../network/router/quota_engine.dart';
+import '../network/router/router_discovery.dart';
+import '../network/router/router_service.dart';
 import '../security/credential_storage.dart';
 import '../storage/isar_service.dart';
 import '../storage/preferences_service.dart';
@@ -55,6 +61,50 @@ final openWrtClientProvider = Provider<OpenWrtClient>((ref) {
   );
 });
 
+// --- Universal Router Abstraction Providers ---
+final openWrtAdapterProvider = Provider<OpenWrtAdapter>((ref) {
+  final openWrtClient = ref.watch(openWrtClientProvider);
+  final apiClient = ref.watch(apiClientProvider);
+  return OpenWrtAdapter(
+    openWrtClient: openWrtClient,
+    apiClient: apiClient,
+  );
+});
+
+final routerAdapterRegistryProvider = Provider<RouterAdapterRegistry>((ref) {
+  final openWrtAdapter = ref.watch(openWrtAdapterProvider);
+  return RouterAdapterRegistry.withDefaults(openWrtAdapter: openWrtAdapter);
+});
+
+final routerDiscoveryProvider = Provider<RouterDiscovery>((ref) {
+  return RouterDiscovery();
+});
+
+final connectionDiagnosticsProvider = Provider<ConnectionDiagnostics>((ref) {
+  final discovery = ref.watch(routerDiscoveryProvider);
+  return ConnectionDiagnostics(discovery: discovery);
+});
+
+final routerServiceProvider = Provider<RouterService>((ref) {
+  final registry = ref.watch(routerAdapterRegistryProvider);
+  final prefService = ref.watch(preferencesServiceProvider);
+  final discovery = ref.watch(routerDiscoveryProvider);
+  final diagnostics = ref.watch(connectionDiagnosticsProvider);
+  final openWrtAdapter = ref.watch(openWrtAdapterProvider);
+  return RouterService(
+    registry: registry,
+    preferencesService: prefService,
+    discovery: discovery,
+    diagnostics: diagnostics,
+    initialAdapter: openWrtAdapter,
+  );
+});
+
+final quotaEngineProvider = Provider<QuotaEngine>((ref) {
+  final routerService = ref.watch(routerServiceProvider);
+  return routerService.quotaEngine;
+});
+
 // --- Devices Providers ---
 final deviceRemoteDataSourceProvider = Provider<DeviceRemoteDataSource>((ref) {
   final openWrtClient = ref.watch(openWrtClientProvider);
@@ -105,8 +155,10 @@ final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) {
 final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
   final prefService = ref.watch(preferencesServiceProvider);
   final openWrt = ref.watch(openWrtClientProvider);
+  final routerService = ref.watch(routerServiceProvider);
   return SettingsRepositoryImpl(
     preferencesService: prefService,
     openWrtClient: openWrt,
+    routerService: routerService,
   );
 });

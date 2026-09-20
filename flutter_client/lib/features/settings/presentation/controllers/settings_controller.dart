@@ -49,6 +49,10 @@ class SettingsController extends StateNotifier<ConnectionSettings> {
     return await _repository.testConnection();
   }
 
+  Future<ConnectionDiagnosticReport?> runDiagnostics() async {
+    return await _repository.runDiagnostics();
+  }
+
   Future<void> resetToDefaults() async {
     await _repository.resetSettings();
     state = _repository.getSettings();

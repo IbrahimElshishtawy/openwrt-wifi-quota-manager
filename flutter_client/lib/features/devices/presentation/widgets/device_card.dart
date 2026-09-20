@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/network/router/router_capability.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../domain/models/device_model.dart';
 import 'edit_quota_modal.dart';
@@ -8,12 +9,14 @@ class DeviceCard extends StatelessWidget {
   final DeviceModel device;
   final ValueChanged<bool> onToggleBlock;
   final Future<void> Function(double newQuota, bool enabled) onSaveQuota;
+  final RouterCapabilities? capabilities;
 
   const DeviceCard({
     super.key,
     required this.device,
     required this.onToggleBlock,
     required this.onSaveQuota,
+    this.capabilities,
   });
 
   IconData _getDeviceIcon(String name, String hostname) {
@@ -34,6 +37,7 @@ class DeviceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final caps = capabilities ?? RouterCapabilities.openwrt();
     final isBlocked = device.isBlocked || !device.enabled;
     final ratio = device.usageRatio;
     final icon = _getDeviceIcon(device.name, device.hostname);
@@ -120,104 +124,156 @@ class DeviceCard extends StatelessWidget {
                 ),
               ),
 
-              // Block / Allow Switch
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Switch(
-                    value: !isBlocked,
-                    activeThumbColor: Colors.white,
-                    activeTrackColor: AppColors.success,
-                    inactiveThumbColor: AppColors.textSecondary,
-                    inactiveTrackColor: AppColors.surfaceDark,
-                    onChanged: (allowed) {
-                      onToggleBlock(!allowed);
-                    },
+              // Block / Allow Switch (Only if router supports block)
+              if (caps.block)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Switch(
+                      value: !isBlocked,
+                      activeThumbColor: Colors.white,
+                      activeTrackColor: AppColors.success,
+                      inactiveThumbColor: AppColors.textSecondary,
+                      inactiveTrackColor: AppColors.surfaceDark,
+                      onChanged: (allowed) {
+                        onToggleBlock(!allowed);
+                      },
+                    ),
+                    Text(
+                      isBlocked ? 'Blocked' : 'Allowed',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: isBlocked ? AppColors.danger : AppColors.success,
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Tooltip(
+                  message: caps.getReason('block'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceDark,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.cardBorderDark),
+                    ),
+                    child: const Text(
+                      'Block N/A',
+                      style: TextStyle(fontSize: 10, color: AppColors.textTertiary),
+                    ),
                   ),
-                  Text(
-                    isBlocked ? 'Blocked' : 'Allowed',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: isBlocked ? AppColors.danger : AppColors.success,
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Usage & Quota Progress Bar (Only if usage capability exists)
+          if (caps.usage) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Used: ${Formatters.gigabytes(device.usageGb)} / ${Formatters.gigabytes(device.quotaGb)}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                Text(
+                  '${(ratio * 100).toStringAsFixed(1)}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: ratio,
+                minHeight: 8,
+                backgroundColor: AppColors.surfaceDark,
+                valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+              ),
+            ),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceDark,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 14, color: AppColors.textTertiary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      caps.getReason('usage'),
+                      style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          // Usage & Quota Progress Bar
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Used: ${Formatters.gigabytes(device.usageGb)} / ${Formatters.gigabytes(device.quotaGb)}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              Text(
-                '${(ratio * 100).toStringAsFixed(1)}%',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: statusColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: ratio,
-              minHeight: 8,
-              backgroundColor: AppColors.surfaceDark,
-              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
             ),
-          ),
+          ],
 
           const SizedBox(height: 14),
 
-          // Action Buttons: Edit Quota
+          // Action Buttons: Edit Quota (Only if quota capability exists)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Remaining: ${Formatters.gigabytes(device.remainingGb)}',
+                caps.quota
+                    ? 'Remaining: ${Formatters.gigabytes(device.remainingGb)}'
+                    : 'Quota: Unsupported',
                 style: TextStyle(
                   fontSize: 11,
-                  color: device.remainingGb > 0 ? AppColors.textTertiary : AppColors.danger,
+                  color: caps.quota && device.remainingGb > 0
+                      ? AppColors.textTertiary
+                      : AppColors.warning,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: () {
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) => EditQuotaModal(
-                      device: device,
-                      onSave: onSaveQuota,
-                    ),
-                  );
-                },
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  side: const BorderSide(color: AppColors.cardBorderDark),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              if (caps.quota)
+                OutlinedButton.icon(
+                  onPressed: () {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      builder: (_) => EditQuotaModal(
+                        device: device,
+                        onSave: onSaveQuota,
+                      ),
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    side: const BorderSide(color: AppColors.cardBorderDark),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.edit, size: 14, color: AppColors.primary),
+                  label: const Text(
+                    'Edit Quota',
+                    style: TextStyle(fontSize: 12, color: AppColors.primary),
+                  ),
+                )
+              else
+                Tooltip(
+                  message: caps.getReason('quota'),
+                  child: const Text(
+                    'Quota N/A',
+                    style: TextStyle(fontSize: 11, color: AppColors.textTertiary),
+                  ),
                 ),
-                icon: const Icon(Icons.edit, size: 14, color: AppColors.primary),
-                label: const Text(
-                  'Adjust Quota',
-                  style: TextStyle(fontSize: 12, color: AppColors.primary),
-                ),
-              ),
             ],
           ),
         ],
