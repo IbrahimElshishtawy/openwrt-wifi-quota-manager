@@ -20,9 +20,9 @@ export const getDevicesQuerySchema = z.object({
   search: z.string().max(100).optional(),
   interface: z.string().max(50).optional(),
   connected: z
-    .enum(['true', 'false', '1', '0'])
-    .optional()
-    .transform((val) => (val !== undefined ? val === 'true' || val === '1' : undefined)),
+    .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+    .transform((val) => (typeof val === 'boolean' ? val : val === 'true' || val === '1'))
+    .optional(),
   status: z.string().optional(),
 });
 
