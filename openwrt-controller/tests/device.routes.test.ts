@@ -43,7 +43,9 @@ async function runRouteTests() {
   assert.equal(apiData.data.length, 1);
   assert.equal(apiData.data[0].hostname, 'my-phone');
   assert.equal(apiData.data[0].mac, '52:54:00:AA:BB:CC');
-  assert.equal(apiData.data[0].id, '52:54:00:aa:bb:cc');
+  assert.equal(apiData.data[0].id, '52:54:00:AA:BB:CC');
+  assert.equal(apiData.data[0].rxBytes, 0);
+  assert.equal(apiData.data[0].txBytes, 0);
 
   // 2. Test GET /devices (Compatibility endpoint)
   const compatRes = await app.inject({
