@@ -30,3 +30,11 @@ htmlcov/
 # Local test mocks & router dumps
 /tmp/
 *.tmp
+
+# Node.js & TypeScript artifacts
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+
