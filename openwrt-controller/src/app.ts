@@ -5,8 +5,10 @@ import Fastify, {
   type FastifyReply,
 } from 'fastify';
 import cors from '@fastify/cors';
+import { ZodError } from 'zod';
 import { env } from './config/env.js';
 import { healthRoutes } from './modules/health/health.routes.js';
+import { deviceRoutes } from './modules/devices/device.routes.js';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -54,6 +56,16 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
   // Centralized Fastify error handling
   app.setErrorHandler((error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
+    // Handle Zod input validation errors
+    if (error instanceof ZodError) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Validation failed',
+        issues: error.issues,
+      });
+    }
+
     const statusCode = error.statusCode && error.statusCode >= 400 && error.statusCode < 600
       ? error.statusCode
       : 500;
@@ -86,6 +98,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
   // Register modular routes
   await app.register(healthRoutes);
+  await app.register(deviceRoutes);
 
   return app;
 };
