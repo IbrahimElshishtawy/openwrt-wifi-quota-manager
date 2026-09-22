@@ -8,12 +8,21 @@ import cors from '@fastify/cors';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
 import { healthRoutes } from './modules/health/health.routes.js';
-import { deviceRoutes } from './modules/devices/device.routes.js';
+import { devicesRoutes } from './modules/devices/devices.routes.js';
+import {
+  OpenWrtConnectionError,
+  UbusAuthenticationError,
+  UbusRequestError,
+  OpenWrtNotConfiguredError,
+} from './infrastructure/openwrt/UbusClient.js';
+import { DeviceFetchError } from './modules/devices/DevicesService.js';
 
 export interface ErrorResponse {
   statusCode: number;
   error: string;
   message: string;
+  code?: string;
+  success?: boolean;
 }
 
 /**
@@ -66,6 +75,25 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       });
     }
 
+    // Handle OpenWrt router and Ubus domain errors
+    if (
+      error instanceof OpenWrtConnectionError ||
+      error instanceof UbusAuthenticationError ||
+      error instanceof UbusRequestError ||
+      error instanceof OpenWrtNotConfiguredError ||
+      error instanceof DeviceFetchError
+    ) {
+      const statusCode = error.statusCode || 502;
+      request.log.error(error);
+      return reply.status(statusCode).send({
+        statusCode,
+        error: error.name,
+        code: (error as { code?: string }).code,
+        message: error.message,
+        success: false,
+      });
+    }
+
     const statusCode = error.statusCode && error.statusCode >= 400 && error.statusCode < 600
       ? error.statusCode
       : 500;
@@ -80,6 +108,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       error: error.name || (is5xx ? 'Internal Server Error' : 'Bad Request'),
       // In production, do not leak internal exception details for 5xx errors
       message: isProduction && is5xx ? 'An internal server error occurred' : error.message,
+      success: false,
     };
 
     return reply.status(statusCode).send(errorPayload);
@@ -91,6 +120,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       statusCode: 404,
       error: 'Not Found',
       message: `Route ${request.method} ${request.url} not found`,
+      success: false,
     };
 
     return reply.status(404).send(notFoundPayload);
@@ -98,7 +128,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
   // Register modular routes
   await app.register(healthRoutes);
-  await app.register(deviceRoutes);
+  await app.register(devicesRoutes);
 
   return app;
 };
