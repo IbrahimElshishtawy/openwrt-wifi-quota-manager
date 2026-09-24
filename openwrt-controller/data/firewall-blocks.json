@@ -1,6 +1,4 @@
 {
-  "manualBlockedMacs": [
-    "52:54:00:CE:1C:BE"
-  ],
+  "manualBlockedMacs": [],
   "quotaBlockedMacs": []
 }
