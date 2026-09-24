@@ -1,4 +1,17 @@
 /**
+ * Domain error representing a failure during usage metrics retrieval or processing.
+ */
+export class UsageFetchError extends Error {
+  public readonly statusCode = 502;
+  public readonly code = 'USAGE_FETCH_ERROR';
+
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = 'UsageFetchError';
+  }
+}
+
+/**
  * Raw JSON output returned by `nlbw -c json` from OpenWrt nlbwmon.
  */
 export interface RawNlbwmonResponse {
