@@ -11,6 +11,7 @@ import {
   UbusAuthenticationError,
   OpenWrtNotConfiguredError,
 } from '../src/infrastructure/openwrt/UbusClient.js';
+import { ZodError } from 'zod';
 import {
   QuotaNotFoundError,
   QuotaAlreadyExistsError,
@@ -89,6 +90,15 @@ function buildTestApp(service: QuotaService) {
   const app = Fastify();
 
   app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof ZodError) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Validation failed',
+        issues: error.issues,
+      });
+    }
+
     if (
       error instanceof OpenWrtConnectionError ||
       error instanceof UbusAuthenticationError ||
@@ -305,7 +315,24 @@ async function runRouteTests() {
     console.log('✅ PATCH /api/quotas/:mac explicitly reset usage to 0');
   }
 
-  // 10. Test DELETE /api/quotas/:mac
+  // 10. Test Router Error propagation -> 502 Bad Gateway
+  console.log('Testing router error response mapping (502)...');
+  {
+    setFail(true);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/quotas',
+    });
+
+    assert.equal(res.statusCode, 502);
+    const body = res.json();
+    assert.equal(body.success, false);
+    assert.equal(body.statusCode, 502);
+    console.log('✅ Router connection error mapped to 502 Bad Gateway');
+    setFail(false);
+  }
+
+  // 11. Test DELETE /api/quotas/:mac
   console.log('Testing DELETE /api/quotas/:mac...');
   {
     const res = await app.inject({
@@ -327,26 +354,9 @@ async function runRouteTests() {
     console.log('✅ DELETE /api/quotas/:mac removed quota cleanly');
   }
 
-  // 11. Test Router Error propagation -> 502 Bad Gateway
-  console.log('Testing router error response mapping (502)...');
-  {
-    setFail(true);
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/quotas',
-    });
-
-    assert.equal(res.statusCode, 502);
-    const body = res.json();
-    assert.equal(body.success, false);
-    assert.equal(body.statusCode, 502);
-    console.log('✅ Router connection error mapped to 502 Bad Gateway');
-  }
-
   // 12. Test Compatibility Aliases (/quotas)
   console.log('Testing compatibility aliases /quotas...');
   {
-    setFail(false);
     const res = await app.inject({
       method: 'GET',
       url: '/quotas',
