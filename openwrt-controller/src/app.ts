@@ -16,6 +16,8 @@ import {
   OpenWrtNotConfiguredError,
 } from './infrastructure/openwrt/UbusClient.js';
 import { DeviceFetchError } from './modules/devices/DevicesService.js';
+import { usageRoutes } from './modules/usage/usage.routes.js';
+import { UsageFetchError } from './modules/usage/UsageService.js';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -81,7 +83,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       error instanceof UbusAuthenticationError ||
       error instanceof UbusRequestError ||
       error instanceof OpenWrtNotConfiguredError ||
-      error instanceof DeviceFetchError
+      error instanceof DeviceFetchError ||
+      error instanceof UsageFetchError
     ) {
       const statusCode = error.statusCode || 502;
       request.log.error(error);
@@ -129,6 +132,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   // Register modular routes
   await app.register(healthRoutes);
   await app.register(devicesRoutes);
+  await app.register(usageRoutes);
 
   return app;
 };
