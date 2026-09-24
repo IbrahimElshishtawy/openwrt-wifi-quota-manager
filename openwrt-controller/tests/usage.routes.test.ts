@@ -14,8 +14,15 @@ async function runRouteTests() {
       'conns', 'rx_bytes', 'rx_pkts', 'tx_bytes', 'tx_pkts', 'layer7'
     ],
     data: [
+      // Real LAN client flows
       [4, 'ICMP', 0, '52:54:00:ce:1c:be', '192.168.50.50', 6, 1008, 12, 1344, 16, 'ICMP'],
       [4, 'UDP', 53, '52:54:00:ce:1c:be', '192.168.50.50', 6, 420, 4, 450, 8, 'DNS'],
+      // Infrastructure WAN / libvirt flow (MUST be excluded)
+      [4, 'TCP', 443, '52:54:00:e3:be:c2', '192.168.122.132', 20, 2131296, 500, 127088, 300, 'HTTPS'],
+      // Router self flow (MUST be excluded)
+      [4, 'TCP', 80, '52:54:00:cf:15:77', '192.168.50.1', 2, 500, 5, 500, 5, 'HTTP'],
+      // Host gateway flow (MUST be excluded)
+      [4, 'TCP', 22, '52:54:00:5b:2e:c1', '192.168.50.254', 10, 1000, 10, 1000, 10, 'SSH'],
     ],
   });
 
@@ -41,13 +48,23 @@ async function runRouteTests() {
   assert.equal(apiRes.statusCode, 200);
   const apiData = apiRes.json();
   assert.equal(apiData.success, true);
-  assert.equal(apiData.data.length, 1);
+  assert.equal(apiData.count, 1, 'count must be exactly 1 real client');
+  assert.equal(apiData.data.length, 1, 'Expected exactly 1 real client');
   assert.equal(apiData.data[0].mac, '52:54:00:CE:1C:BE');
   assert.equal(apiData.data[0].ip, '192.168.50.50');
   assert.equal(apiData.data[0].downloadBytes, 1428);
   assert.equal(apiData.data[0].uploadBytes, 1794);
   assert.equal(apiData.data[0].totalBytes, 3222);
-  console.log('✅ GET /api/usage responded with status 200 and aggregated data');
+
+  // Assert infrastructure addresses are excluded
+  const hasWanDevice = apiData.data.some((d: { ip: string; mac: string }) => d.ip === '192.168.122.132' || d.mac === '52:54:00:E3:BE:C2');
+  assert.equal(hasWanDevice, false, 'Infrastructure device 192.168.122.132 must NOT appear in /api/usage');
+  const hasRouter = apiData.data.some((d: { ip: string; mac: string }) => d.ip === '192.168.50.1' || d.mac === '52:54:00:CF:15:77');
+  assert.equal(hasRouter, false, 'Router self 192.168.50.1 must NOT appear in /api/usage');
+  const hasHost = apiData.data.some((d: { ip: string }) => d.ip === '192.168.50.254');
+  assert.equal(hasHost, false, 'Host gateway 192.168.50.254 must NOT appear in /api/usage');
+
+  console.log('✅ GET /api/usage responded with status 200 and filtered out infrastructure addresses');
 
   // 2. Test GET /usage (Compatibility alias)
   console.log('Testing GET /usage...');
@@ -59,6 +76,7 @@ async function runRouteTests() {
   assert.equal(aliasRes.statusCode, 200);
   const aliasData = aliasRes.json();
   assert.equal(aliasData.success, true);
+  assert.equal(aliasData.count, 1);
   assert.equal(aliasData.data.length, 1);
   assert.equal(aliasData.data[0].mac, '52:54:00:CE:1C:BE');
   console.log('✅ GET /usage compatibility endpoint responded with status 200');
