@@ -32,6 +32,9 @@ const envSchema = z.object({
   OPENWRT_SSH_USER: z.string().default('root'),
   OPENWRT_SSH_KEY_PATH: z.string().optional(),
   OPENWRT_SSH_TIMEOUT_MS: z.coerce.number().int().min(500).default(5000),
+
+  // Quota persistence configuration
+  QUOTA_STORAGE_PATH: z.string().default('data/quotas.json'),
 });
 
 export type Env = z.infer<typeof envSchema>;
