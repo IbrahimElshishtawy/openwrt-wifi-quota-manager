@@ -12,7 +12,7 @@ export const createQuotaSchema = z.object({
     .regex(MAC_REGEX, 'Invalid MAC address format (must be XX:XX:XX:XX:XX:XX)')
     .transform((val) => val.trim().replace(/-/g, ':').toUpperCase()),
   quotaBytes: z
-    .number({ required_error: 'quotaBytes is required' })
+    .number()
     .int('quotaBytes must be an integer')
     .positive('quotaBytes must be a positive integer greater than 0'),
 });
@@ -65,8 +65,8 @@ export const createQuotaRouteSchema = {
       type: 'object',
       required: ['mac', 'quotaBytes'],
       properties: {
-        mac: { type: 'string', example: '52:54:00:CE:1C:BE' },
-        quotaBytes: { type: 'number', minimum: 1, example: 5368709120 },
+        mac: { type: 'string' },
+        quotaBytes: { type: 'number', minimum: 1 },
       },
     },
     response: {
@@ -115,7 +115,7 @@ export const getQuotaByMacRouteSchema = {
       type: 'object',
       required: ['mac'],
       properties: {
-        mac: { type: 'string', example: '52:54:00:CE:1C:BE' },
+        mac: { type: 'string' },
       },
     },
     response: {
@@ -137,14 +137,14 @@ export const updateQuotaRouteSchema = {
       type: 'object',
       required: ['mac'],
       properties: {
-        mac: { type: 'string', example: '52:54:00:CE:1C:BE' },
+        mac: { type: 'string' },
       },
     },
     body: {
       type: 'object',
       properties: {
-        quotaBytes: { type: 'number', minimum: 1, example: 10737418240 },
-        resetUsage: { type: 'boolean', example: false },
+        quotaBytes: { type: 'number', minimum: 1 },
+        resetUsage: { type: 'boolean' },
       },
     },
     response: {
@@ -166,7 +166,7 @@ export const deleteQuotaRouteSchema = {
       type: 'object',
       required: ['mac'],
       properties: {
-        mac: { type: 'string', example: '52:54:00:CE:1C:BE' },
+        mac: { type: 'string' },
       },
     },
     response: {

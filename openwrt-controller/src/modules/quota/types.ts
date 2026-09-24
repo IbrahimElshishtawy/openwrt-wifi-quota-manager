@@ -36,8 +36,8 @@ export interface CreateQuotaDto {
 }
 
 export interface UpdateQuotaDto {
-  quotaBytes?: number;
-  resetUsage?: boolean;
+  quotaBytes?: number | undefined;
+  resetUsage?: boolean | undefined;
 }
 
 export interface QuotaApiResponse {

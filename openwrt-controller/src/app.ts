@@ -18,6 +18,13 @@ import {
 import { DeviceFetchError } from './modules/devices/DevicesService.js';
 import { usageRoutes } from './modules/usage/usage.routes.js';
 import { UsageFetchError } from './modules/usage/UsageService.js';
+import { quotaRoutes } from './modules/quota/quota.routes.js';
+import {
+  QuotaNotFoundError,
+  QuotaAlreadyExistsError,
+  InvalidDeviceQuotaError,
+  QuotaStorageError,
+} from './modules/quota/types.js';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -77,14 +84,18 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       });
     }
 
-    // Handle OpenWrt router and Ubus domain errors
+    // Handle OpenWrt router, Ubus, device, usage, and quota domain errors
     if (
       error instanceof OpenWrtConnectionError ||
       error instanceof UbusAuthenticationError ||
       error instanceof UbusRequestError ||
       error instanceof OpenWrtNotConfiguredError ||
       error instanceof DeviceFetchError ||
-      error instanceof UsageFetchError
+      error instanceof UsageFetchError ||
+      error instanceof QuotaNotFoundError ||
+      error instanceof QuotaAlreadyExistsError ||
+      error instanceof InvalidDeviceQuotaError ||
+      error instanceof QuotaStorageError
     ) {
       const statusCode = error.statusCode || 502;
       request.log.error(error);
@@ -133,6 +144,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(healthRoutes);
   await app.register(devicesRoutes);
   await app.register(usageRoutes);
+  await app.register(quotaRoutes);
 
   return app;
 };
