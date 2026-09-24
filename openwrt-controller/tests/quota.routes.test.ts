@@ -93,7 +93,7 @@ function createMockDependencies() {
 function buildTestApp(service: QuotaService) {
   const app = Fastify();
 
-  app.setErrorHandler((error: FastifyError, _request: FastifyRequest, reply: FastifyReply) => {
+  app.setErrorHandler((error: any, _request: FastifyRequest, reply: FastifyReply) => {
     if (error instanceof ZodError) {
       return reply.status(400).send({
         statusCode: 400,
@@ -111,17 +111,17 @@ function buildTestApp(service: QuotaService) {
       error instanceof QuotaAlreadyExistsError ||
       error instanceof InvalidDeviceQuotaError
     ) {
-      const statusCode = (error as { statusCode?: number }).statusCode || 502;
+      const statusCode = error.statusCode || 502;
       return reply.status(statusCode).send({
         statusCode,
         error: error.name,
-        code: (error as { code?: string }).code,
+        code: error.code,
         message: error.message,
         success: false,
       });
     }
 
-    if (error.validation) {
+    if (error?.validation) {
       return reply.status(400).send({
         statusCode: 400,
         error: 'Bad Request',

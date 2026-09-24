@@ -25,6 +25,13 @@ import {
   InvalidDeviceQuotaError,
   QuotaStorageError,
 } from './modules/quota/types.js';
+import { firewallRoutes } from './modules/firewall/firewall.routes.js';
+import {
+  InvalidMacAddressError,
+  InfrastructureDeviceError,
+  NonClientDeviceError,
+  FirewallExecutionError,
+} from './modules/firewall/types.js';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -95,7 +102,11 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       error instanceof QuotaNotFoundError ||
       error instanceof QuotaAlreadyExistsError ||
       error instanceof InvalidDeviceQuotaError ||
-      error instanceof QuotaStorageError
+      error instanceof QuotaStorageError ||
+      error instanceof InvalidMacAddressError ||
+      error instanceof InfrastructureDeviceError ||
+      error instanceof NonClientDeviceError ||
+      error instanceof FirewallExecutionError
     ) {
       const statusCode = error.statusCode || 502;
       request.log.error(error);
@@ -145,6 +156,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(devicesRoutes);
   await app.register(usageRoutes);
   await app.register(quotaRoutes);
+  await app.register(firewallRoutes);
 
   return app;
 };
