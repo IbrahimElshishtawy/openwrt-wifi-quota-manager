@@ -1,3 +1,5 @@
+export type BlockSource = 'manual' | 'quota';
+
 export interface BlockResult {
   success: boolean;
   mac: string;

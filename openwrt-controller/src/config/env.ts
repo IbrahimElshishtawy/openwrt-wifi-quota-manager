@@ -35,6 +35,10 @@ const envSchema = z.object({
 
   // Quota persistence configuration
   QUOTA_STORAGE_PATH: z.string().default('data/quotas.json'),
+
+  // Quota enforcement configuration
+  QUOTA_ENFORCEMENT_INTERVAL_MS: z.coerce.number().int().min(1000).default(10000),
+  FIREWALL_STORAGE_PATH: z.string().default('data/firewall-blocks.json'),
 });
 
 export type Env = z.infer<typeof envSchema>;

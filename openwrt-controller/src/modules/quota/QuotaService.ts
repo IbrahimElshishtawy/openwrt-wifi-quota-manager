@@ -117,6 +117,14 @@ export class QuotaService {
   }
 
   /**
+   * Refreshes telemetry for all configured quotas and returns the updated quota states.
+   * Authoritative method used by QuotaEnforcementService.
+   */
+  public async refreshAllQuotas(): Promise<DeviceQuota[]> {
+    return this.getAllQuotas();
+  }
+
+  /**
    * Retrieves quota state for a specific device by MAC with fresh usage metrics.
    */
   public async getQuotaByMac(rawMac: string): Promise<DeviceQuota> {

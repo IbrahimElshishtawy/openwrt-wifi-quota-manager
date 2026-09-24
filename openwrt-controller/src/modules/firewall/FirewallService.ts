@@ -12,11 +12,22 @@ import type { Device } from '../devices/types.js';
 import {
   type BlockResult,
   type UnblockResult,
+  type BlockSource,
   InvalidMacAddressError,
   InfrastructureDeviceError,
   NonClientDeviceError,
   FirewallExecutionError,
 } from './types.js';
+import {
+  type IFirewallRepository,
+} from './storage/IFirewallRepository.js';
+import {
+  InMemoryFirewallRepository,
+} from './storage/InMemoryFirewallRepository.js';
+import {
+  firewallRepository,
+  FileFirewallRepository,
+} from './storage/FileFirewallRepository.js';
 
 export {
   InvalidMacAddressError,
@@ -24,19 +35,23 @@ export {
   NonClientDeviceError,
   FirewallExecutionError,
   normalizeMac,
+  FileFirewallRepository,
+  InMemoryFirewallRepository,
 };
-export type { BlockResult, UnblockResult };
+export type { BlockResult, UnblockResult, BlockSource, IFirewallRepository };
 
 /**
  * Production Firewall Management Service.
  *
- * Coordinates device access enforcement by interacting with NftablesClient
+ * Coordinates device access enforcement by interacting with NftablesClient,
+ * tracking block ownership (manual vs quota-enforced),
  * and verifying LAN client authenticity via DevicesService.isRealLanClient().
  */
 export class FirewallService {
   constructor(
     private readonly nftables: INftablesClient = nftablesClient,
-    private readonly devices: DevicesService = devicesService
+    private readonly devices: DevicesService = devicesService,
+    private readonly repository: IFirewallRepository = new InMemoryFirewallRepository()
   ) {}
 
   /**
@@ -48,16 +63,24 @@ export class FirewallService {
 
   /**
    * Returns a list of all MAC addresses currently blocked in the firewall.
+   * If a source is specified ('manual' | 'quota'), filters by ownership.
    */
-  public async getBlockedDevices(): Promise<string[]> {
+  public async getBlockedDevices(source?: BlockSource): Promise<string[]> {
+    if (source) {
+      return this.repository.listBlockedMacsBySource(source);
+    }
     return this.nftables.listBlockedMacs();
   }
 
   /**
    * Checks whether a specific MAC address is currently blocked.
+   * If source is provided, checks if it is blocked by that specific source.
    */
-  public async isBlocked(rawMac: string): Promise<boolean> {
+  public async isBlocked(rawMac: string, source?: BlockSource): Promise<boolean> {
     const normMac = this.validateAndNormalizeMac(rawMac);
+    if (source) {
+      return this.repository.hasBlockSource(normMac, source);
+    }
     return this.nftables.hasBlockedMac(normMac);
   }
 
@@ -68,9 +91,10 @@ export class FirewallService {
    * 1. Validates MAC format.
    * 2. Checks against router, host, and libvirt infrastructure MACs.
    * 3. Verifies that the target is a legitimate LAN client via DevicesService.isRealLanClient().
-   * 4. Idempotently skips addition if the device is already blocked.
+   * 4. Updates block ownership repository (distinguishing manual vs quota-enforced blocks).
+   * 5. Idempotently skips nftables addition if the device is already blocked.
    */
-  public async blockDevice(rawMac: string): Promise<BlockResult> {
+  public async blockDevice(rawMac: string, source: BlockSource = 'manual'): Promise<BlockResult> {
     const normMac = this.validateAndNormalizeMac(rawMac);
 
     // 1. Detect network infrastructure
@@ -109,9 +133,13 @@ export class FirewallService {
     // 4. Ensure ruleset is provisioned
     await this.nftables.ensureRuleset();
 
-    // 5. Idempotent check: if already blocked, return success without re-adding
-    const alreadyBlocked = await this.nftables.hasBlockedMac(normMac);
-    if (alreadyBlocked) {
+    // 5. Update block ownership tracking
+    const alreadyHadSource = await this.repository.hasBlockSource(normMac, source);
+    await this.repository.addBlockSource(normMac, source);
+
+    // 6. Idempotent check: if already blocked in nftables, return success without re-adding
+    const alreadyBlockedInNftables = await this.nftables.hasBlockedMac(normMac);
+    if (alreadyBlockedInNftables) {
       return {
         success: true,
         mac: normMac,
@@ -121,7 +149,7 @@ export class FirewallService {
       };
     }
 
-    // 6. Execute atomic nftables element addition
+    // 7. Execute atomic nftables element addition
     await this.nftables.addBlockedMac(normMac);
 
     return {
@@ -129,20 +157,52 @@ export class FirewallService {
       mac: normMac,
       isBlocked: true,
       message: `Device ${normMac} blocked successfully`,
+      alreadyBlocked: alreadyHadSource,
     };
   }
 
   /**
    * Unblocks an individual device, restoring normal internet access.
-   * Idempotent: safe even if the device is not currently blocked.
+   * Enforces block ownership: only removes nftables block if no other sources remain.
+   * If quota enforcement requests unblock but device was manually blocked by admin,
+   * the manual block is strictly preserved.
    */
-  public async unblockDevice(rawMac: string): Promise<UnblockResult> {
+  public async unblockDevice(rawMac: string, source: BlockSource = 'manual'): Promise<UnblockResult> {
     const normMac = this.validateAndNormalizeMac(rawMac);
 
     await this.nftables.ensureRuleset();
 
-    const currentlyBlocked = await this.nftables.hasBlockedMac(normMac);
-    if (!currentlyBlocked) {
+    const hadSource = await this.repository.hasBlockSource(normMac, source);
+    const currentlyBlockedInNft = await this.nftables.hasBlockedMac(normMac);
+
+    // Safety: If quota enforcement attempts to unblock a device it does not own (e.g. manual admin block)
+    if (source === 'quota' && !hadSource) {
+      return {
+        success: true,
+        mac: normMac,
+        isBlocked: currentlyBlockedInNft,
+        message: `Device ${normMac} was not blocked by quota enforcement`,
+        wasBlocked: false,
+      };
+    }
+
+    await this.repository.removeBlockSource(normMac, source);
+
+    const remainingSources = await this.repository.getSources(normMac);
+
+    // If other sources still require this device to be blocked (e.g. manual admin block exists)
+    if (remainingSources.length > 0) {
+      return {
+        success: true,
+        mac: normMac,
+        isBlocked: true,
+        message: `Device ${normMac} ${source} block removed, but remains blocked by: ${remainingSources.join(', ')}`,
+        wasBlocked: hadSource || currentlyBlockedInNft,
+      };
+    }
+
+    // No remaining block owners exist. If not in nftables, safe no-op.
+    if (!currentlyBlockedInNft) {
       return {
         success: true,
         mac: normMac,
@@ -152,6 +212,7 @@ export class FirewallService {
       };
     }
 
+    // Atomically delete MAC from nftables set
     await this.nftables.deleteBlockedMac(normMac);
 
     return {
@@ -176,4 +237,8 @@ export class FirewallService {
   }
 }
 
-export const firewallService = new FirewallService();
+export const firewallService = new FirewallService(
+  nftablesClient,
+  devicesService,
+  firewallRepository
+);
