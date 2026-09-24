@@ -32,6 +32,8 @@ import {
   NonClientDeviceError,
   FirewallExecutionError,
 } from './modules/firewall/types.js';
+import { quotaEnforcementRoutes } from './modules/quota-enforcement/quota-enforcement.routes.js';
+import { quotaEnforcementMonitor } from './modules/quota-enforcement/QuotaEnforcementMonitor.js';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -157,6 +159,12 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(usageRoutes);
   await app.register(quotaRoutes);
   await app.register(firewallRoutes);
+  await app.register(quotaEnforcementRoutes);
+
+  // Stop background monitor upon application close
+  app.addHook('onClose', async () => {
+    quotaEnforcementMonitor.stop();
+  });
 
   return app;
 };

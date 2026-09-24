@@ -1,5 +1,6 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
+import { quotaEnforcementMonitor } from './modules/quota-enforcement/QuotaEnforcementMonitor.js';
 
 const startServer = async (): Promise<void> => {
   const app = await buildApp();
@@ -18,6 +19,9 @@ const startServer = async (): Promise<void> => {
       },
       `🚀 OpenWrt Controller server listening at ${address}`
     );
+
+    // Start background Quota Enforcement Monitor
+    quotaEnforcementMonitor.start();
   } catch (err) {
     app.log.error(err, 'Failed to start server');
     process.exit(1);
@@ -29,6 +33,7 @@ const startServer = async (): Promise<void> => {
     process.on(signal, async () => {
       app.log.info(`Received ${signal}, shutting down gracefully...`);
       try {
+        quotaEnforcementMonitor.stop();
         await app.close();
         app.log.info('Server closed successfully');
         process.exit(0);
