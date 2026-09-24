@@ -7,7 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "tsx tests/device.service.test.ts && tsx tests/device.routes.test.ts && tsx tests/usage.service.test.ts && tsx tests/usage.routes.test.ts && tsx tests/quota.service.test.ts && tsx tests/quota.routes.test.ts && tsx tests/firewall.service.test.ts && tsx tests/firewall.routes.test.ts"
+    "test": "tsx tests/device.service.test.ts && tsx tests/device.routes.test.ts && tsx tests/usage.service.test.ts && tsx tests/usage.routes.test.ts && tsx tests/quota.service.test.ts && tsx tests/quota.routes.test.ts && tsx tests/firewall.service.test.ts && tsx tests/firewall.routes.test.ts && tsx tests/quota-enforcement.service.test.ts && tsx tests/quota-enforcement.monitor.test.ts && tsx tests/quota-enforcement.routes.test.ts"
   },
   "keywords": [],
   "author": "",
