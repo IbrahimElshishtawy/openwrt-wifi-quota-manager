@@ -26,6 +26,12 @@ const envSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('false')
     .transform((val) => val === 'true' || val === '1'),
+
+  // OpenWrt SSH parameters for router shell commands (e.g. nlbw, nftables)
+  OPENWRT_SSH_PORT: z.coerce.number().int().min(1).max(65535).default(22),
+  OPENWRT_SSH_USER: z.string().default('root'),
+  OPENWRT_SSH_KEY_PATH: z.string().optional(),
+  OPENWRT_SSH_TIMEOUT_MS: z.coerce.number().int().min(500).default(5000),
 });
 
 export type Env = z.infer<typeof envSchema>;
