@@ -1,0 +1,28 @@
+{
+  "name": "openwrt-controller",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "tsx tests/device.service.test.ts && tsx tests/device.routes.test.ts && tsx tests/usage.service.test.ts && tsx tests/usage.routes.test.ts && tsx tests/quota.service.test.ts && tsx tests/quota.routes.test.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "axios": "^1.20.0",
+    "dotenv": "^18.0.2",
+    "fastify": "^5.12.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
