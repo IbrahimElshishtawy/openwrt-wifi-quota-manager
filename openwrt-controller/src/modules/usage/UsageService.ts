@@ -6,6 +6,10 @@ import {
   OpenWrtNotConfiguredError,
   OpenWrtConnectionError,
 } from '../../infrastructure/openwrt/UbusClient.js';
+import {
+  devicesService,
+  DevicesService,
+} from '../devices/DevicesService.js';
 import type { DeviceUsage, RawNlbwmonResponse } from './types.js';
 
 export class UsageFetchError extends Error {
@@ -29,11 +33,16 @@ export const normalizeMac = (mac: string): string => {
 };
 
 export class UsageService {
-  constructor(private readonly ssh: ISshClient = sshClient) {}
+  constructor(
+    private readonly ssh: ISshClient = sshClient,
+    private readonly devices: DevicesService = devicesService
+  ) {}
 
   /**
    * Fetches real-time bandwidth consumption per device by executing `nlbw -c json`
-   * on the OpenWrt router, parsing the tabular data, and aggregating usage by device.
+   * on the OpenWrt router, parsing the tabular data, aggregating usage by device,
+   * and filtering out infrastructure/router/host/libvirt addresses to return ONLY
+   * real LAN client devices.
    */
   public async getDeviceUsage(): Promise<DeviceUsage[]> {
     if (!this.ssh.isConfigured()) {
@@ -55,7 +64,35 @@ export class UsageService {
       );
     }
 
-    return this.parseAndAggregateNlbwOutput(commandResult.stdout);
+    const aggregated = this.parseAndAggregateNlbwOutput(commandResult.stdout);
+    return this.filterRealClientUsage(aggregated);
+  }
+
+  /**
+   * Filters out infrastructure, router, host, and libvirt addresses from the aggregated
+   * usage metrics, retaining only valid real LAN clients.
+   * Leverages DevicesService as the single source of truth for topology discovery.
+   */
+  public async filterRealClientUsage(usageList: DeviceUsage[]): Promise<DeviceUsage[]> {
+    if (usageList.length === 0) {
+      return [];
+    }
+
+    const [infra, knownDevices] = await Promise.all([
+      this.devices.detectInfrastructure().catch(() => this.devices.getBaselineInfrastructure()),
+      this.devices.getConnectedDevices().catch(() => []),
+    ]);
+
+    const effectiveInfra = infra ?? this.devices.getBaselineInfrastructure();
+    const effectiveDevices = knownDevices ?? [];
+
+    return usageList.filter((device) =>
+      this.devices.isRealLanClient(
+        { mac: device.mac, ip: device.ip },
+        effectiveInfra,
+        effectiveDevices
+      )
+    );
   }
 
   /**
