@@ -178,6 +178,31 @@ export class QuotaEnforcementService {
       }
     }
 
+    // Reconcile stale blocks in nftables for deleted quotas or orphan blocks
+    try {
+      const actualBlockedList = await this.firewallService.getBlockedDevices();
+      const currentQuotaMacs = new Set(quotas.map((q) => q.mac.toUpperCase()));
+      for (const blockedMac of actualBlockedList) {
+        const norm = blockedMac.toUpperCase();
+        if (!currentQuotaMacs.has(norm)) {
+          const isManual = await this.firewallService.isBlocked(norm, 'manual');
+          if (!isManual) {
+            await this.firewallService.unblockDevice(norm, 'quota');
+            unblockedCount++;
+            results.push({
+              mac: norm,
+              action: 'unblocked',
+              quotaStatus: 'deleted',
+              success: true,
+              reason: 'Quota deleted or missing; device unblocked by reconciliation',
+            });
+          }
+        }
+      }
+    } catch {
+      // Non-fatal if getBlockedDevices fails
+    }
+
     const durationMs = Date.now() - startTime;
 
     return {

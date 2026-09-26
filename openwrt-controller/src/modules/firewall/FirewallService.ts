@@ -73,13 +73,26 @@ export class FirewallService implements IFirewallService {
 
   /**
    * Returns a list of all MAC addresses currently blocked in the firewall.
-   * If a source is specified ('manual' | 'quota'), filters by ownership.
+   * If a source is specified ('manual' | 'quota'), filters by ownership grounded in actual nftables state.
    */
   public async getBlockedDevices(source?: BlockSource): Promise<string[]> {
-    if (source) {
-      return this.repository.listBlockedMacsBySource(source);
+    const nftBlocked = await this.nftables.listBlockedMacs();
+    if (!source) {
+      return nftBlocked;
     }
-    return this.nftables.listBlockedMacs();
+    if (source === 'manual') {
+      const manualMacs = await this.repository.listBlockedMacsBySource('manual');
+      const manualSet = new Set(manualMacs.map((m) => normalizeMac(m)));
+      return nftBlocked.filter((mac) => manualSet.has(mac));
+    }
+    if (source === 'quota') {
+      const manualMacs = await this.repository.listBlockedMacsBySource('manual');
+      const manualSet = new Set(manualMacs.map((m) => normalizeMac(m)));
+      const quotaMacs = await this.repository.listBlockedMacsBySource('quota');
+      const quotaSet = new Set(quotaMacs.map((m) => normalizeMac(m)));
+      return nftBlocked.filter((mac) => quotaSet.has(mac) || !manualSet.has(mac));
+    }
+    return nftBlocked;
   }
 
   /**
@@ -184,14 +197,15 @@ export class FirewallService implements IFirewallService {
 
     const hadSource = await this.repository.hasBlockSource(normMac, source);
     const currentlyBlockedInNft = await this.nftables.hasBlockedMac(normMac);
+    const hasManualBlock = await this.repository.hasBlockSource(normMac, 'manual');
 
-    // Safety: If quota enforcement attempts to unblock a device it does not own (e.g. manual admin block)
-    if (source === 'quota' && !hadSource) {
+    // Safety: If quota enforcement attempts to unblock a device that is manually blocked by admin and not owned by quota
+    if (source === 'quota' && !hadSource && hasManualBlock) {
       return {
         success: true,
         mac: normMac,
         isBlocked: currentlyBlockedInNft,
-        message: `Device ${normMac} was not blocked by quota enforcement`,
+        message: `Device ${normMac} was not blocked by quota enforcement and has an active manual block`,
         wasBlocked: false,
       };
     }

@@ -7,7 +7,7 @@ export type DeviceEnforcementAction = 'blocked' | 'unblocked' | 'none';
 export interface DeviceEnforcementResult {
   mac: string;
   action: DeviceEnforcementAction;
-  quotaStatus: 'active' | 'exhausted';
+  quotaStatus: 'active' | 'exhausted' | 'deleted';
   success: boolean;
   reason?: string | undefined;
   error?: string | undefined;
