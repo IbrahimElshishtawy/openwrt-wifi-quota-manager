@@ -32,6 +32,8 @@ export const firewallRoutes: FastifyPluginAsync<FirewallRoutesOptions> = async (
   fastify.delete('/blocks/:mac', controller.unblockDevice);
 
   // --- Compatibility & Mobile App Aliases ---
+  fastify.get('/api/firewall/blocked', controller.getBlockedDevices);
+  fastify.get('/firewall/blocked', controller.getBlockedDevices);
   fastify.get('/api/blocked', controller.getBlockedDevices);
   fastify.get('/blocked', controller.getBlockedDevices);
 

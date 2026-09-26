@@ -9,10 +9,12 @@ import {
   normalizeMac,
 } from '../devices/DevicesService.js';
 import type { Device } from '../devices/types.js';
+import type { IFirewallService } from './IFirewallService.js';
 import {
   type BlockResult,
   type UnblockResult,
   type BlockSource,
+  FirewallError,
   InvalidMacAddressError,
   InfrastructureDeviceError,
   NonClientDeviceError,
@@ -30,6 +32,7 @@ import {
 } from './storage/FileFirewallRepository.js';
 
 export {
+  FirewallError,
   InvalidMacAddressError,
   InfrastructureDeviceError,
   NonClientDeviceError,
@@ -38,7 +41,7 @@ export {
   FileFirewallRepository,
   InMemoryFirewallRepository,
 };
-export type { BlockResult, UnblockResult, BlockSource, IFirewallRepository };
+export type { BlockResult, UnblockResult, BlockSource, IFirewallRepository, IFirewallService };
 
 /**
  * Production Firewall Management Service.
@@ -47,7 +50,7 @@ export type { BlockResult, UnblockResult, BlockSource, IFirewallRepository };
  * tracking block ownership (manual vs quota-enforced),
  * and verifying LAN client authenticity via DevicesService.isRealLanClient().
  */
-export class FirewallService {
+export class FirewallService implements IFirewallService {
   constructor(
     private readonly nftables: INftablesClient = nftablesClient,
     private readonly devices: DevicesService = devicesService,
@@ -55,7 +58,14 @@ export class FirewallService {
   ) {}
 
   /**
-   * Ensures the dedicated nftables table inet quota_block, set, chain, and drop rules exist.
+   * Idempotently initializes the dedicated nftables quota enforcement structure.
+   */
+  public async initialize(): Promise<void> {
+    await this.ensureRuleset();
+  }
+
+  /**
+   * Ensures the dedicated nftables table inet quota_enforcement, set, chain, and drop rules exist.
    */
   public async ensureRuleset(): Promise<void> {
     await this.nftables.ensureRuleset();

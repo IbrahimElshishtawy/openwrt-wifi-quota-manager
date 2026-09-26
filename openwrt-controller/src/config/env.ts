@@ -37,7 +37,11 @@ const envSchema = z.object({
   QUOTA_STORAGE_PATH: z.string().default('data/quotas.json'),
 
   // Quota enforcement configuration
-  QUOTA_ENFORCEMENT_INTERVAL_MS: z.coerce.number().int().min(1000).default(10000),
+  QUOTA_ENFORCEMENT_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((val) => val === 'true' || val === '1'),
+  QUOTA_ENFORCEMENT_INTERVAL_MS: z.coerce.number().int().min(1000).default(5000),
   FIREWALL_STORAGE_PATH: z.string().default('data/firewall-blocks.json'),
 });
 

@@ -54,12 +54,21 @@ export class NonClientDeviceError extends Error {
   }
 }
 
-export class FirewallExecutionError extends Error {
+export class FirewallError extends Error {
   public readonly statusCode = 502;
-  public readonly code = 'FIREWALL_EXECUTION_ERROR';
+  public readonly code: string;
 
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(message: string, public readonly cause?: unknown, code: string = 'FIREWALL_ERROR') {
     super(message);
+    this.name = 'FirewallError';
+    this.code = code;
+  }
+}
+
+export class FirewallExecutionError extends FirewallError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause, 'FIREWALL_EXECUTION_ERROR');
     this.name = 'FirewallExecutionError';
   }
 }
+

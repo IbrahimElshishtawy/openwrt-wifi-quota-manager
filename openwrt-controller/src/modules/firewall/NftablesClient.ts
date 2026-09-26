@@ -17,14 +17,14 @@ export interface INftablesClient {
  * Production client managing remote nftables access control tables on OpenWrt via SSH.
  *
  * Enforces dedicated ruleset isolation:
- * - Table: `inet quota_block`
- * - Set: `blocked_macs` (type `ether_addr`)
+ * - Table: `inet quota_enforcement`
+ * - Set: `blocked_macs` (type `ether_addr`, flags `interval`)
  * - Chain: `forward_block` (hook forward, priority -5)
  *
  * Guarantees idempotency and zero interference with OpenWrt's native firewall4 (`inet fw4`).
  */
 export class NftablesClient implements INftablesClient {
-  public static readonly TABLE_NAME = 'quota_block';
+  public static readonly TABLE_NAME = 'quota_enforcement';
   public static readonly SET_NAME = 'blocked_macs';
   public static readonly CHAIN_NAME = 'forward_block';
 
@@ -48,7 +48,7 @@ export class NftablesClient implements INftablesClient {
   }
 
   /**
-   * Ensures that the dedicated quota_block table, blocked_macs set, and forward drop rules exist.
+   * Ensures that the dedicated quota_enforcement table, blocked_macs set, and forward drop rules exist.
    *
    * Idempotency guarantee:
    * - Never flushes or removes existing blocked MAC addresses.
@@ -73,7 +73,7 @@ export class NftablesClient implements INftablesClient {
       // Table is missing: atomically create table, set, chain, and both directional drop rules
       const fullInitCmd = [
         `nft add table inet ${table}`,
-        `nft 'add set inet ${table} ${set} { type ether_addr; comment "Blocked MAC addresses"; }'`,
+        `nft 'add set inet ${table} ${set} { type ether_addr; flags interval; comment "Blocked MAC addresses"; }'`,
         `nft 'add chain inet ${table} ${chain} { type filter hook forward priority -5; policy accept; }'`,
         `nft add rule inet ${table} ${chain} ether saddr @${set} counter drop`,
         `nft add rule inet ${table} ${chain} ether daddr @${set} counter drop`,
@@ -102,7 +102,7 @@ export class NftablesClient implements INftablesClient {
       }
       if (!setExists) {
         await this.ssh.executeCommand(
-          `nft 'add set inet ${table} ${set} { type ether_addr; comment "Blocked MAC addresses"; }'`
+          `nft 'add set inet ${table} ${set} { type ether_addr; flags interval; comment "Blocked MAC addresses"; }'`
         );
       }
 
