@@ -110,6 +110,15 @@ export class QuotaController {
     const params = macParamsSchema.parse(request.params);
     await this.service.deleteQuota(params.mac);
 
+    // Scenario F: Unblock the device if it was blocked by quota enforcement
+    if (this.firewall) {
+      try {
+        await this.firewall.unblockDevice(params.mac, 'quota');
+      } catch {
+        // Non-fatal if firewall unblock fails or was not blocked
+      }
+    }
+
     const response: QuotaDeleteApiResponse = {
       success: true,
       message: `Quota removed for device ${params.mac}`,
@@ -119,4 +128,5 @@ export class QuotaController {
   };
 }
 
-export const quotaController = new QuotaController();
+export const quotaController = new QuotaController(quotaService, firewallService);
+

@@ -1,10 +1,30 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
-import { quotaEnforcementMonitor } from './modules/quota-enforcement/QuotaEnforcementMonitor.js';
+import { firewallService } from './modules/firewall/FirewallService.js';
+import { quotaEnforcementMonitor } from './modules/quota/QuotaEnforcementMonitor.js';
 
 const startServer = async (): Promise<void> => {
+  // 1. Create app
   const app = await buildApp();
 
+  // 2. Initialize firewall enforcement
+  try {
+    app.log.info('Initializing firewall enforcement ruleset on OpenWrt...');
+    await firewallService.initialize();
+    app.log.info('Firewall enforcement ruleset verified/initialized successfully');
+  } catch (firewallErr) {
+    app.log.warn(
+      firewallErr,
+      'Firewall initialization warning: unable to connect or initialize nftables on router right now. Monitor will retry on each sync.'
+    );
+  }
+
+  // 3. Start Quota Enforcement Monitor
+  if (env.QUOTA_ENFORCEMENT_ENABLED && env.NODE_ENV !== 'test') {
+    quotaEnforcementMonitor.start();
+  }
+
+  // 4. Start HTTP server
   try {
     const address = await app.listen({
       port: env.PORT,
@@ -19,9 +39,6 @@ const startServer = async (): Promise<void> => {
       },
       `🚀 OpenWrt Controller server listening at ${address}`
     );
-
-    // Start background Quota Enforcement Monitor
-    quotaEnforcementMonitor.start();
   } catch (err) {
     app.log.error(err, 'Failed to start server');
     process.exit(1);

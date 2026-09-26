@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { FirewallService } from '../src/modules/firewall/FirewallService.js';
 import { NftablesClient } from '../src/modules/firewall/NftablesClient.js';
 import {
+  FirewallError,
   InvalidMacAddressError,
   InfrastructureDeviceError,
   NonClientDeviceError,
@@ -45,19 +46,19 @@ function createMockEnvironment() {
       }
 
       // Check table
-      if (cmd.startsWith('nft list table inet quota_block')) {
+      if (cmd.startsWith('nft list table inet quota_enforcement')) {
         if (!state.tableExists) {
           throw new Error('Error: No such file or directory');
         }
         return {
-          stdout: `table inet quota_block {\n}\n`,
+          stdout: `table inet quota_enforcement {\n}\n`,
           stderr: '',
           exitCode: 0,
         };
       }
 
       // Full init command
-      if (cmd.includes('nft add table inet quota_block') && cmd.includes('add set inet quota_block')) {
+      if (cmd.includes('nft add table inet quota_enforcement') && cmd.includes('add set inet quota_enforcement')) {
         state.tableExists = true;
         state.setExists = true;
         state.chainExists = true;
@@ -69,7 +70,7 @@ function createMockEnvironment() {
       }
 
       // Check set
-      if (cmd.startsWith('nft list set inet quota_block blocked_macs')) {
+      if (cmd.startsWith('nft list set inet quota_enforcement blocked_macs')) {
         if (!state.setExists) {
           throw new Error('Error: No such file or directory');
         }
@@ -77,13 +78,13 @@ function createMockEnvironment() {
       }
 
       // Add set
-      if (cmd.includes('add set inet quota_block blocked_macs')) {
+      if (cmd.includes('add set inet quota_enforcement blocked_macs')) {
         state.setExists = true;
         return { stdout: '', stderr: '', exitCode: 0 };
       }
 
       // Check chain
-      if (cmd.startsWith('nft list chain inet quota_block forward_block')) {
+      if (cmd.startsWith('nft list chain inet quota_enforcement forward_block')) {
         if (!state.chainExists) {
           throw new Error('Error: No such file or directory');
         }
@@ -95,13 +96,13 @@ function createMockEnvironment() {
       }
 
       // Add chain
-      if (cmd.includes('add chain inet quota_block forward_block')) {
+      if (cmd.includes('add chain inet quota_enforcement forward_block')) {
         state.chainExists = true;
         return { stdout: '', stderr: '', exitCode: 0 };
       }
 
       // Add rule
-      if (cmd.includes('add rule inet quota_block forward_block')) {
+      if (cmd.includes('add rule inet quota_enforcement forward_block')) {
         if (cmd.includes('saddr @blocked_macs')) {
           state.chainRules.push('ether saddr @blocked_macs counter drop');
         }
@@ -112,7 +113,7 @@ function createMockEnvironment() {
       }
 
       // Get element
-      if (cmd.startsWith('nft get element inet quota_block blocked_macs')) {
+      if (cmd.startsWith('nft get element inet quota_enforcement blocked_macs')) {
         const match = cmd.match(/([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})/);
         if (match && match[1] && state.blockedElements.has(match[1].toUpperCase())) {
           return { stdout: `element = { ${match[1]} }`, stderr: '', exitCode: 0 };
@@ -121,7 +122,7 @@ function createMockEnvironment() {
       }
 
       // Add element
-      if (cmd.startsWith('nft add element inet quota_block blocked_macs')) {
+      if (cmd.startsWith('nft add element inet quota_enforcement blocked_macs')) {
         const match = cmd.match(/([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})/);
         if (match && match[1]) {
           state.blockedElements.add(match[1].toUpperCase());
@@ -130,7 +131,7 @@ function createMockEnvironment() {
       }
 
       // Delete element
-      if (cmd.startsWith('nft delete element inet quota_block blocked_macs')) {
+      if (cmd.startsWith('nft delete element inet quota_enforcement blocked_macs')) {
         const match = cmd.match(/([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})/);
         if (match && match[1]) {
           state.blockedElements.delete(match[1].toUpperCase());
@@ -139,14 +140,14 @@ function createMockEnvironment() {
       }
 
       // List set JSON / text
-      if (cmd.includes('list set inet quota_block blocked_macs')) {
+      if (cmd.includes('list set inet quota_enforcement blocked_macs')) {
         const json = {
           nftables: [
             {
               set: {
                 family: 'inet',
                 name: 'blocked_macs',
-                table: 'quota_block',
+                table: 'quota_enforcement',
                 type: 'ether_addr',
                 elem: Array.from(state.blockedElements),
               },
@@ -266,37 +267,37 @@ async function runFirewallServiceTests() {
     console.log('✅ Spec 5 Passed: Non-real LAN client rejected with 400');
   }
 
-  // Spec 6: ensureRuleset creates missing structures
-  console.log('Running Spec 6: ensureRuleset creates missing structures...');
+  // Spec 6: initialize() creates missing structures
+  console.log('Running Spec 6: initialize() creates missing structures...');
   {
     const { service, state } = createMockEnvironment();
     state.tableExists = false;
     state.setExists = false;
     state.chainExists = false;
 
-    await service.ensureRuleset();
+    await service.initialize();
 
     assert.equal(state.tableExists, true);
     assert.equal(state.setExists, true);
     assert.equal(state.chainExists, true);
     assert.equal(state.chainRules.length, 2);
-    console.log('✅ Spec 6 Passed: Missing nftables structures created cleanly');
+    console.log('✅ Spec 6 Passed: Missing nftables structures created cleanly via initialize()');
   }
 
-  // Spec 7: ensureRuleset is idempotent
-  console.log('Running Spec 7: ensureRuleset is idempotent...');
+  // Spec 7: initialize() is idempotent
+  console.log('Running Spec 7: initialize() is idempotent...');
   {
     const { service, state } = createMockEnvironment();
     state.executedCommands = [];
 
     // Table and components already exist
-    await service.ensureRuleset();
-    await service.ensureRuleset();
+    await service.initialize();
+    await service.initialize();
 
     // Verify it did not run the full recreation command
-    const recreateCommands = state.executedCommands.filter((c) => c.includes('nft add table inet quota_block'));
+    const recreateCommands = state.executedCommands.filter((c) => c.includes('nft add table inet quota_enforcement'));
     assert.equal(recreateCommands.length, 0, 'Must not re-create existing table');
-    console.log('✅ Spec 7 Passed: ensureRuleset is completely idempotent');
+    console.log('✅ Spec 7 Passed: initialize() is completely idempotent');
   }
 
   // Spec 8: Block adds MAC
@@ -375,17 +376,20 @@ async function runFirewallServiceTests() {
     console.log('✅ Spec 13 Passed: getBlockedDevices lists all blocked MACs');
   }
 
-  // Spec 14: SSH failure handling
-  console.log('Running Spec 14: SSH failure handling...');
+  // Spec 14: SSH failure handling produces FirewallError
+  console.log('Running Spec 14: SSH failure handling produces FirewallError...');
   {
     const { service, state } = createMockEnvironment();
     state.failNextCommand = true;
 
     await assert.rejects(
       async () => service.blockDevice('52:54:00:CE:1C:BE'),
-      (err: unknown) => err instanceof FirewallExecutionError && err.statusCode === 502
+      (err: unknown) =>
+        err instanceof FirewallError &&
+        err instanceof FirewallExecutionError &&
+        err.statusCode === 502
     );
-    console.log('✅ Spec 14 Passed: SSH failure propagates as FirewallExecutionError (502)');
+    console.log('✅ Spec 14 Passed: SSH failure propagates as FirewallError / FirewallExecutionError (502)');
   }
 
   // Spec 15: Nftables command failure
@@ -405,7 +409,7 @@ async function runFirewallServiceTests() {
 
     await assert.rejects(
       async () => failingService.blockDevice('52:54:00:CE:1C:BE'),
-      (err: unknown) => err instanceof FirewallExecutionError && err.statusCode === 502
+      (err: unknown) => err instanceof FirewallError && err.statusCode === 502
     );
     console.log('✅ Spec 15 Passed: Nftables execution error mapped to 502');
   }
@@ -426,7 +430,25 @@ async function runFirewallServiceTests() {
     console.log('✅ Spec 16 Passed: Existing blocked devices preserved across ruleset checks');
   }
 
-  console.log('\n🎉 ALL 16 FirewallService SPECIFICATIONS PASSED SUCCESSFULLY! 🎉\n');
+  // Spec 17: Existing OpenWrt firewall rules are never flushed
+  console.log('Running Spec 17: Existing OpenWrt firewall rules are never flushed...');
+  {
+    const { service, state } = createMockEnvironment();
+    await service.initialize();
+    await service.blockDevice('52:54:00:CE:1C:BE');
+    await service.unblockDevice('52:54:00:CE:1C:BE');
+
+    const destructiveCmds = state.executedCommands.filter(
+      (c) =>
+        c.includes('flush ruleset') ||
+        c.includes('flush table inet fw4') ||
+        c.includes('delete table inet fw4')
+    );
+    assert.equal(destructiveCmds.length, 0, 'Must never execute destructive flush commands on OpenWrt');
+    console.log('✅ Spec 17 Passed: Existing OpenWrt firewall rules are never flushed');
+  }
+
+  console.log('\n🎉 ALL 17 FirewallService SPECIFICATIONS PASSED SUCCESSFULLY! 🎉\n');
 }
 
 runFirewallServiceTests().catch((err) => {

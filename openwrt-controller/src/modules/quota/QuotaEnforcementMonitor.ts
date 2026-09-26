@@ -43,11 +43,11 @@ export interface EnforcementCycleResult {
     action: 'blocked' | 'unblocked' | 'none';
     quotaStatus: string;
     success: boolean;
-    reason?: string;
-    error?: string;
+    reason?: string | undefined;
+    error?: string | undefined;
   }>;
   success: boolean;
-  error?: string;
+  error?: string | undefined;
 }
 
 export interface EnforcementMonitorStatus {

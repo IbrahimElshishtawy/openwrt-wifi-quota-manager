@@ -27,13 +27,14 @@ import {
 } from './modules/quota/types.js';
 import { firewallRoutes } from './modules/firewall/firewall.routes.js';
 import {
+  FirewallError,
   InvalidMacAddressError,
   InfrastructureDeviceError,
   NonClientDeviceError,
   FirewallExecutionError,
 } from './modules/firewall/types.js';
 import { quotaEnforcementRoutes } from './modules/quota-enforcement/quota-enforcement.routes.js';
-import { quotaEnforcementMonitor } from './modules/quota-enforcement/QuotaEnforcementMonitor.js';
+import { quotaEnforcementMonitor } from './modules/quota/QuotaEnforcementMonitor.js';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -108,6 +109,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       error instanceof InvalidMacAddressError ||
       error instanceof InfrastructureDeviceError ||
       error instanceof NonClientDeviceError ||
+      error instanceof FirewallError ||
       error instanceof FirewallExecutionError
     ) {
       const statusCode = error.statusCode || 502;

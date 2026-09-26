@@ -99,7 +99,7 @@ function createMockDependencies() {
               set: {
                 family: 'inet',
                 name: 'blocked_macs',
-                table: 'quota_block',
+                table: 'quota_enforcement',
                 elem: Array.from(blockedSet),
               },
             },
@@ -314,7 +314,16 @@ async function runFirewallRouteTests() {
     });
     assert.equal(unblockRes.statusCode, 200);
     assert.equal(unblockRes.json().isBlocked, false);
-    console.log('✅ Compatibility endpoints /block, /unblock, and /blocked passed');
+
+    // Verify GET /api/firewall/blocked
+    const apiFwRes = await app.inject({
+      method: 'GET',
+      url: '/api/firewall/blocked',
+    });
+    assert.equal(apiFwRes.statusCode, 200);
+    assert.equal(apiFwRes.json().success, true);
+    assert.equal(Array.isArray(apiFwRes.json().data), true);
+    console.log('✅ Compatibility endpoints /block, /unblock, /blocked, and /api/firewall/blocked passed');
   }
 
   // 10. Test Router Failure -> 502 Bad Gateway
