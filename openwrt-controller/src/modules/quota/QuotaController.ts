@@ -1,5 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { quotaService, type QuotaService } from './QuotaService.js';
+import { firewallService } from '../firewall/FirewallService.js';
+import type { IFirewallService } from '../firewall/IFirewallService.js';
 import {
   createQuotaSchema,
   updateQuotaSchema,
@@ -15,7 +17,10 @@ import type {
 } from './types.js';
 
 export class QuotaController {
-  constructor(private readonly service: QuotaService = quotaService) {}
+  constructor(
+    private readonly service: QuotaService = quotaService,
+    private readonly firewall?: IFirewallService
+  ) {}
 
   /**
    * POST /api/quotas
