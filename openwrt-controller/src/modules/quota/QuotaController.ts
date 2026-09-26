@@ -100,6 +100,25 @@ export class QuotaController {
   };
 
   /**
+   * POST /api/quotas/:mac/reset
+   * Explicitly resets usage metrics for a device quota.
+   */
+  public resetQuota = async (
+    request: FastifyRequest<{ Params: MacParamsInput }>,
+    reply: FastifyReply
+  ): Promise<void> => {
+    const params = macParamsSchema.parse(request.params);
+    const quota = await this.service.updateQuota(params.mac, { resetUsage: true });
+
+    const response: QuotaApiResponse = {
+      success: true,
+      data: quota,
+    };
+
+    reply.status(200).send(response);
+  };
+
+  /**
    * DELETE /api/quotas/:mac
    * Removes a quota assignment for a device.
    */

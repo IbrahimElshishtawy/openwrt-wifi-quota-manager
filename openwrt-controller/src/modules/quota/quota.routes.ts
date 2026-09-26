@@ -35,6 +35,10 @@ export const quotaRoutes: FastifyPluginAsync<QuotaRoutesOptions> = async (fastif
   fastify.patch('/api/quotas/:mac', updateQuotaRouteSchema, controller.updateQuota);
   fastify.patch('/quotas/:mac', updateQuotaRouteSchema, controller.updateQuota);
 
+  // POST /api/quotas/:mac/reset - Reset quota usage
+  fastify.post('/api/quotas/:mac/reset', getQuotaByMacRouteSchema, controller.resetQuota);
+  fastify.post('/quotas/:mac/reset', getQuotaByMacRouteSchema, controller.resetQuota);
+
   // DELETE /api/quotas/:mac - Delete quota
   fastify.delete('/api/quotas/:mac', deleteQuotaRouteSchema, controller.deleteQuota);
   fastify.delete('/quotas/:mac', deleteQuotaRouteSchema, controller.deleteQuota);

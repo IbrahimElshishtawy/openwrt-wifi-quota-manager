@@ -319,6 +319,38 @@ async function runRouteTests() {
     console.log('✅ PATCH /api/quotas/:mac explicitly reset usage to 0');
   }
 
+  // 9b. Test POST /api/quotas/:mac/reset
+  console.log('Testing POST /api/quotas/:mac/reset (explicit reset endpoint)...');
+  {
+    // First simulate some usage
+    setUsage([
+      {
+        mac: '52:54:00:CE:1C:BE',
+        ip: '192.168.50.50',
+        downloadBytes: 5000,
+        uploadBytes: 5000,
+        totalBytes: 104857600 + 2000 + 10000,
+      },
+    ]);
+
+    // Verify usage registered
+    const getRes = await app.inject({ method: 'GET', url: '/api/quotas/52:54:00:CE:1C:BE' });
+    assert.equal(getRes.statusCode, 200);
+    assert.ok(getRes.json().data.usedBytes > 0);
+
+    // Call POST /api/quotas/:mac/reset
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/quotas/52:54:00:CE:1C:BE/reset',
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.data.usedBytes, 0, 'Used bytes must be reset to 0');
+    console.log('✅ POST /api/quotas/:mac/reset explicitly reset usage to 0');
+  }
+
   // 10. Test Router Error propagation -> 502 Bad Gateway
   console.log('Testing router error response mapping (502)...');
   {
