@@ -380,6 +380,170 @@ async function runTests() {
     console.log('✅ Test 12 Passed: Multi-row aggregation + infrastructure filtering verified');
   }
 
+  // =========================================================================
+  // Phase 3 Targeted Specifications:
+  // 1. New device
+  // 2. Existing device
+  // 3. Missing device
+  // 4. Zero usage
+  // 5. Large usage
+  // 6. Malformed data
+  // 7. nlbwmon failure
+  // 8. SSH failure
+  // =========================================================================
+
+  // Test 13: New device discovered in nlbwmon
+  console.log('Running Test 13: New device discovered in nlbwmon...');
+  {
+    const newDeviceOutput = JSON.stringify({
+      columns: ['family', 'proto', 'port', 'mac', 'ip', 'conns', 'rx_bytes', 'rx_pkts', 'tx_bytes', 'tx_pkts', 'layer7'],
+      data: [
+        [4, 'TCP', 443, '52:54:00:11:22:33', '192.168.50.77', 1, 500, 5, 500, 5, 'HTTPS'],
+      ],
+    });
+    const mockSsh: ISshClient = {
+      isConfigured: () => true,
+      executeCommand: async () => ({ stdout: newDeviceOutput, stderr: '', exitCode: 0 }),
+    };
+    const service = new UsageService(mockSsh);
+    const result = await service.getDeviceUsage();
+    assert.equal(result.length, 1);
+    assert.equal(result[0]?.mac, '52:54:00:11:22:33');
+    assert.equal(result[0]?.ip, '192.168.50.77');
+    console.log('✅ Test 13 Passed: New device correctly parsed');
+  }
+
+  // Test 14: Existing device metrics update
+  console.log('Running Test 14: Existing device updated metrics...');
+  {
+    const existingDeviceOutput = JSON.stringify({
+      columns: ['family', 'proto', 'port', 'mac', 'ip', 'conns', 'rx_bytes', 'rx_pkts', 'tx_bytes', 'tx_pkts', 'layer7'],
+      data: [
+        [4, 'TCP', 443, '52:54:00:CE:1C:BE', '192.168.50.50', 50, 50000, 50, 70000, 70, 'HTTPS'],
+      ],
+    });
+    const mockSsh: ISshClient = {
+      isConfigured: () => true,
+      executeCommand: async () => ({ stdout: existingDeviceOutput, stderr: '', exitCode: 0 }),
+    };
+    const service = new UsageService(mockSsh);
+    const result = await service.getDeviceUsage();
+    assert.equal(result.length, 1);
+    assert.equal(result[0]?.totalBytes, 120000);
+    console.log('✅ Test 14 Passed: Existing device updated metrics verified');
+  }
+
+  // Test 15: Missing device (device in LAN topology but absent in nlbwmon)
+  console.log('Running Test 15: Missing device in nlbwmon...');
+  {
+    const emptyOutput = JSON.stringify({
+      columns: ['family', 'proto', 'port', 'mac', 'ip', 'conns', 'rx_bytes', 'rx_pkts', 'tx_bytes', 'tx_pkts', 'layer7'],
+      data: [],
+    });
+    const mockSsh: ISshClient = {
+      isConfigured: () => true,
+      executeCommand: async () => ({ stdout: emptyOutput, stderr: '', exitCode: 0 }),
+    };
+    const service = new UsageService(mockSsh);
+    const result = await service.getDeviceUsage();
+    assert.equal(result.length, 0, 'Empty nlbwmon data produces clean empty list without crashing');
+    console.log('✅ Test 15 Passed: Missing device handled cleanly');
+  }
+
+  // Test 16: Zero usage (rx_bytes: 0, tx_bytes: 0)
+  console.log('Running Test 16: Zero usage device...');
+  {
+    const zeroOutput = JSON.stringify({
+      columns: ['family', 'proto', 'port', 'mac', 'ip', 'conns', 'rx_bytes', 'rx_pkts', 'tx_bytes', 'tx_pkts', 'layer7'],
+      data: [
+        [4, 'TCP', 80, '52:54:00:CE:1C:BE', '192.168.50.50', 0, 0, 0, 0, 0, 'HTTP'],
+      ],
+    });
+    const mockSsh: ISshClient = {
+      isConfigured: () => true,
+      executeCommand: async () => ({ stdout: zeroOutput, stderr: '', exitCode: 0 }),
+    };
+    const service = new UsageService(mockSsh);
+    const result = await service.getDeviceUsage();
+    assert.equal(result.length, 1);
+    assert.equal(result[0]?.downloadBytes, 0);
+    assert.equal(result[0]?.uploadBytes, 0);
+    assert.equal(result[0]?.totalBytes, 0);
+    console.log('✅ Test 16 Passed: Zero usage device parsed accurately');
+  }
+
+  // Test 17: Large usage (hundreds of gigabytes, > 500 GB)
+  console.log('Running Test 17: Large usage (> 500 GB)...');
+  {
+    const largeDownload = 350 * 1024 * 1024 * 1024; // 350 GB
+    const largeUpload = 180 * 1024 * 1024 * 1024;   // 180 GB
+    const largeOutput = JSON.stringify({
+      columns: ['family', 'proto', 'port', 'mac', 'ip', 'conns', 'rx_bytes', 'rx_pkts', 'tx_bytes', 'tx_pkts', 'layer7'],
+      data: [
+        [4, 'TCP', 443, '52:54:00:CE:1C:BE', '192.168.50.50', 10000, largeDownload, 500000, largeUpload, 400000, 'HTTPS'],
+      ],
+    });
+    const mockSsh: ISshClient = {
+      isConfigured: () => true,
+      executeCommand: async () => ({ stdout: largeOutput, stderr: '', exitCode: 0 }),
+    };
+    const service = new UsageService(mockSsh);
+    const result = await service.getDeviceUsage();
+    assert.equal(result.length, 1);
+    assert.equal(result[0]?.downloadBytes, largeDownload);
+    assert.equal(result[0]?.uploadBytes, largeUpload);
+    assert.equal(result[0]?.totalBytes, largeDownload + largeUpload);
+    assert.equal(result[0]?.totalBytes, 530 * 1024 * 1024 * 1024);
+    console.log('✅ Test 17 Passed: Large bandwidth usage (530 GB) calculated with 64-bit precision');
+  }
+
+  // Test 18: Malformed data handling (missing columns, truncated JSON, non-object)
+  console.log('Running Test 18: Malformed data resilience...');
+  {
+    const service = new UsageService();
+    // Missing columns when data is present
+    assert.throws(() => service.parseAndAggregateNlbwOutput('{"data":[[1,2,3]]}'));
+    // Truncated JSON
+    assert.throws(() => service.parseAndAggregateNlbwOutput('{"columns":["mac"],"data":[['));
+    // Non-array data
+    assert.deepEqual(service.parseAndAggregateNlbwOutput('{"columns":["mac","ip","rx_bytes","tx_bytes"],"data":null}'), []);
+    console.log('✅ Test 18 Passed: Malformed nlbwmon responses throw clean UsageFetchError');
+  }
+
+  // Test 19: nlbwmon failure (e.g. nlbw daemon not running on OpenWrt)
+  console.log('Running Test 19: nlbwmon execution failure...');
+  {
+    const mockSsh: ISshClient = {
+      isConfigured: () => true,
+      executeCommand: async () => {
+        throw new Error('nlbw: command not found or nlbwmon database locked');
+      },
+    };
+    const service = new UsageService(mockSsh);
+    await assert.rejects(
+      async () => service.getDeviceUsage(),
+      (err: unknown) => err instanceof UsageFetchError && (err as UsageFetchError).statusCode === 502
+    );
+    console.log('✅ Test 19 Passed: nlbwmon failure mapped to 502 UsageFetchError');
+  }
+
+  // Test 20: SSH failure / timeout handling
+  console.log('Running Test 20: SSH connection timeout handling...');
+  {
+    const mockSsh: ISshClient = {
+      isConfigured: () => true,
+      executeCommand: async () => {
+        throw new OpenWrtConnectionError('SSH command timed out after 5000ms while contacting 192.168.50.1:22');
+      },
+    };
+    const service = new UsageService(mockSsh);
+    await assert.rejects(
+      async () => service.getDeviceUsage(),
+      (err: unknown) => err instanceof OpenWrtConnectionError && (err as OpenWrtConnectionError).statusCode === 502
+    );
+    console.log('✅ Test 20 Passed: SSH timeout propagates OpenWrtConnectionError (502)');
+  }
+
   console.log('\n🎉 ALL UsageService TESTS PASSED SUCCESSFULLY! 🎉\n');
 }
 

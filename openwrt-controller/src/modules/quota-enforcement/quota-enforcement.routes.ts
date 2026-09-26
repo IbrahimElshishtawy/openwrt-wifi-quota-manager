@@ -2,12 +2,13 @@ import type { FastifyPluginAsync } from 'fastify';
 import {
   QuotaEnforcementController,
   quotaEnforcementController,
+  type IQuotaStatusProvider,
 } from './QuotaEnforcementController.js';
-import { QuotaEnforcementMonitor } from './QuotaEnforcementMonitor.js';
+import type { QuotaEnforcementMonitor } from './QuotaEnforcementMonitor.js';
 
 export interface QuotaEnforcementRoutesOptions {
   controller?: QuotaEnforcementController;
-  monitor?: QuotaEnforcementMonitor;
+  monitor?: IQuotaStatusProvider | QuotaEnforcementMonitor;
 }
 
 export const quotaEnforcementRoutes: FastifyPluginAsync<QuotaEnforcementRoutesOptions> = async (

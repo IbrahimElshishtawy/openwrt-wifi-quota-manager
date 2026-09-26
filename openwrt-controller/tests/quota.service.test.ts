@@ -585,6 +585,74 @@ async function runTests() {
     console.log('✅ Additional Tests Passed: Update, Delete, and Conflict behaviors verified');
   }
 
+  // =========================================================================
+  // Phase 4: Strict Boundary Condition Verification
+  // quotaBytes = 0
+  // usedBytes = 0
+  // usedBytes = quotaBytes - 1
+  // usedBytes = quotaBytes
+  // usedBytes = quotaBytes + 1
+  // Invalid quota values (negative, non-integer, float)
+  // =========================================================================
+  console.log('Running Test 16: Phase 4 Boundary Conditions Validation...');
+  {
+    const repo = new InMemoryQuotaRepository();
+    const mockDev = createMockDevicesService();
+    const mockUsage = createMockUsageService([{ mac: '52:54:00:CE:1C:BE', ip: '192.168.50.50', downloadBytes: 0, uploadBytes: 0, totalBytes: 0 }]);
+    const service = new QuotaService(repo, mockUsage.service, mockDev);
+
+    // 1. Boundary: quotaBytes = 0 must be rejected
+    await assert.rejects(
+      async () => service.createQuota({ mac: '52:54:00:CE:1C:BE', quotaBytes: 0 }),
+      (err: unknown) => err instanceof InvalidDeviceQuotaError,
+      'quotaBytes = 0 must be rejected with InvalidDeviceQuotaError'
+    );
+
+    // 2. Boundary: negative quotaBytes must be rejected
+    await assert.rejects(
+      async () => service.createQuota({ mac: '52:54:00:CE:1C:BE', quotaBytes: -1000 }),
+      (err: unknown) => err instanceof InvalidDeviceQuotaError
+    );
+
+    // 3. Boundary: non-integer float quotaBytes must be rejected
+    await assert.rejects(
+      async () => service.createQuota({ mac: '52:54:00:CE:1C:BE', quotaBytes: 1000.5 }),
+      (err: unknown) => err instanceof InvalidDeviceQuotaError
+    );
+
+    // Create baseline quota with 1000 bytes
+    await service.createQuota({ mac: '52:54:00:CE:1C:BE', quotaBytes: 1000 });
+
+    // 4. Boundary: usedBytes = 0 -> status = active
+    let q = await service.getQuotaByMac('52:54:00:CE:1C:BE');
+    assert.equal(q.usedBytes, 0);
+    assert.equal(q.status, 'active');
+    assert.equal(q.remainingBytes, 1000);
+
+    // 5. Boundary: usedBytes = quotaBytes - 1 (999) -> status = active
+    mockUsage.setUsage([{ mac: '52:54:00:CE:1C:BE', ip: '192.168.50.50', downloadBytes: 500, uploadBytes: 499, totalBytes: 999 }]);
+    q = await service.getQuotaByMac('52:54:00:CE:1C:BE');
+    assert.equal(q.usedBytes, 999);
+    assert.equal(q.status, 'active', 'usedBytes = quotaBytes - 1 MUST be active');
+    assert.equal(q.remainingBytes, 1);
+
+    // 6. Boundary: usedBytes = quotaBytes (1000) -> status = exhausted
+    mockUsage.setUsage([{ mac: '52:54:00:CE:1C:BE', ip: '192.168.50.50', downloadBytes: 500, uploadBytes: 500, totalBytes: 1000 }]);
+    q = await service.getQuotaByMac('52:54:00:CE:1C:BE');
+    assert.equal(q.usedBytes, 1000);
+    assert.equal(q.status, 'exhausted', 'usedBytes = quotaBytes MUST be exhausted');
+    assert.equal(q.remainingBytes, 0);
+
+    // 7. Boundary: usedBytes = quotaBytes + 1 (1001) -> status = exhausted
+    mockUsage.setUsage([{ mac: '52:54:00:CE:1C:BE', ip: '192.168.50.50', downloadBytes: 500, uploadBytes: 501, totalBytes: 1001 }]);
+    q = await service.getQuotaByMac('52:54:00:CE:1C:BE');
+    assert.equal(q.usedBytes, 1001);
+    assert.equal(q.status, 'exhausted', 'usedBytes = quotaBytes + 1 MUST be exhausted');
+    assert.equal(q.remainingBytes, 0);
+
+    console.log('✅ Test 16 Passed: All Phase 4 boundary conditions (0, quota-1, quota, quota+1) verified accurately');
+  }
+
   console.log('\n🎉 ALL QuotaService UNIT TESTS PASSED SUCCESSFULLY! 🎉\n');
 }
 

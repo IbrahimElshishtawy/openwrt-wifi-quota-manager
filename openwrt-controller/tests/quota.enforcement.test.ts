@@ -15,6 +15,7 @@ interface MockFirewallState {
   blockCalls: Array<{ mac: string; source?: string }>;
   unblockCalls: Array<{ mac: string; source?: string }>;
   failMacs: Set<string>;
+  sources: Map<string, Set<string>>;
 }
 
 function createMockFirewall(): { firewall: IFirewallService; state: MockFirewallState } {
@@ -23,17 +24,25 @@ function createMockFirewall(): { firewall: IFirewallService; state: MockFirewall
     blockCalls: [],
     unblockCalls: [],
     failMacs: new Set<string>(),
+    sources: new Map<string, Set<string>>(),
   };
 
   const firewall: IFirewallService = {
     initialize: async () => {},
     ensureRuleset: async () => {},
-    blockDevice: async (mac: string, source?: string): Promise<BlockResult> => {
+    blockDevice: async (mac: string, source: string = 'manual'): Promise<BlockResult> => {
       state.blockCalls.push({ mac, source });
       if (state.failMacs.has(mac)) {
         throw new Error(`Firewall block failed on router for MAC: ${mac}`);
       }
-      state.blockedMacs.add(mac.toUpperCase());
+      const norm = mac.toUpperCase();
+      let srcSet = state.sources.get(norm);
+      if (!srcSet) {
+        srcSet = new Set();
+        state.sources.set(norm, srcSet);
+      }
+      srcSet.add(source);
+      state.blockedMacs.add(norm);
       return {
         success: true,
         mac,
@@ -41,23 +50,41 @@ function createMockFirewall(): { firewall: IFirewallService; state: MockFirewall
         message: 'Device blocked',
       };
     },
-    unblockDevice: async (mac: string, source?: string): Promise<UnblockResult> => {
+    unblockDevice: async (mac: string, source: string = 'manual'): Promise<UnblockResult> => {
       state.unblockCalls.push({ mac, source });
       if (state.failMacs.has(mac)) {
         throw new Error(`Firewall unblock failed on router for MAC: ${mac}`);
       }
-      state.blockedMacs.delete(mac.toUpperCase());
+      const norm = mac.toUpperCase();
+      const srcSet = state.sources.get(norm);
+      if (srcSet) {
+        srcSet.delete(source);
+        if (srcSet.size === 0) {
+          state.blockedMacs.delete(norm);
+        }
+      } else {
+        state.blockedMacs.delete(norm);
+      }
       return {
         success: true,
         mac,
-        isBlocked: false,
+        isBlocked: state.blockedMacs.has(norm),
         message: 'Device unblocked',
       };
     },
-    isBlocked: async (mac: string): Promise<boolean> => {
-      return state.blockedMacs.has(mac.toUpperCase());
+    isBlocked: async (mac: string, source?: string): Promise<boolean> => {
+      const norm = mac.toUpperCase();
+      if (source) {
+        return state.sources.get(norm)?.has(source) ?? false;
+      }
+      return state.blockedMacs.has(norm);
     },
-    getBlockedDevices: async (): Promise<string[]> => {
+    getBlockedDevices: async (source?: string): Promise<string[]> => {
+      if (source) {
+        return Array.from(state.sources.entries())
+          .filter(([_, set]) => set.has(source))
+          .map(([mac]) => mac);
+      }
       return Array.from(state.blockedMacs);
     },
   };
@@ -534,6 +561,248 @@ async function runQuotaEnforcementTests() {
 
     assert.equal(state.blockedMacs.has('52:54:00:CE:1C:BE'), true);
     console.log('✅ Test 12 Passed: MAC normalization remains uniform');
+  }
+
+  // =========================================================================
+  // Test 13 (Phase 7): Manual Block vs Quota Block Mutual Policy Protection
+  // =========================================================================
+  console.log('Running Test 13: Manual block vs Quota block mutual protection...');
+  {
+    const { firewall, state } = createMockFirewall();
+    const mac = '52:54:00:CE:1C:BE';
+
+    // 1. Admin manually blocks device
+    await firewall.blockDevice(mac, 'manual');
+    assert.equal(state.blockedMacs.has(mac), true);
+    assert.equal(await firewall.isBlocked(mac, 'manual'), true);
+    assert.equal(await firewall.isBlocked(mac, 'quota'), false);
+
+    // 2. Device quota exhausts
+    let quota: DeviceQuota = {
+      mac,
+      quotaBytes: 1000,
+      usedBytes: 1500,
+      remainingBytes: 0,
+      percentage: 100,
+      status: 'exhausted',
+      createdAt: '',
+      updatedAt: '',
+    };
+
+    const mockQuotaService = {
+      refreshAllQuotas: async () => [quota],
+    } as unknown as QuotaService;
+
+    const monitor = new QuotaEnforcementMonitor(mockQuotaService, firewall, {
+      logger: silentLogger,
+    });
+
+    // Monitor sync runs: device is now blocked by BOTH manual and quota
+    await monitor.sync();
+    assert.equal(state.blockedMacs.has(mac), true);
+    assert.equal(await firewall.isBlocked(mac, 'manual'), true);
+    assert.equal(await firewall.isBlocked(mac, 'quota'), true);
+
+    // 3. Admin resets quota usage -> quota becomes active
+    quota = {
+      ...quota,
+      usedBytes: 0,
+      remainingBytes: 1000,
+      percentage: 0,
+      status: 'active',
+    };
+
+    // Monitor sync runs: quota block removed, BUT MANUAL BLOCK MUST REMAIN!
+    await monitor.sync();
+    assert.equal(await firewall.isBlocked(mac, 'quota'), false, 'Quota block must be removed');
+    assert.equal(await firewall.isBlocked(mac, 'manual'), true, 'Manual block MUST remain');
+    assert.equal(state.blockedMacs.has(mac), true, 'Device MUST remain blocked in firewall due to manual block');
+
+    // 4. Quota exhausts again
+    quota = {
+      ...quota,
+      usedBytes: 1000,
+      remainingBytes: 0,
+      percentage: 100,
+      status: 'exhausted',
+    };
+    monitor.clearCache();
+    await monitor.sync();
+    assert.equal(await firewall.isBlocked(mac, 'quota'), true);
+
+    // 5. Admin removes manual block while quota is STILL EXHAUSTED
+    await firewall.unblockDevice(mac, 'manual');
+    assert.equal(await firewall.isBlocked(mac, 'manual'), false, 'Manual block removed');
+    assert.equal(await firewall.isBlocked(mac, 'quota'), true, 'Quota block MUST remain');
+    assert.equal(state.blockedMacs.has(mac), true, 'Device MUST remain blocked in firewall due to exhausted quota');
+
+    // 6. Only when quota becomes active does the device unblock completely
+    quota = {
+      ...quota,
+      usedBytes: 0,
+      remainingBytes: 1000,
+      percentage: 0,
+      status: 'active',
+    };
+    await monitor.sync();
+    assert.equal(await firewall.isBlocked(mac), false, 'Device unblocked only when all policies cleared');
+
+    console.log('✅ Test 13 Passed: Manual and Quota policies operate independently without policy collision');
+  }
+
+  // =========================================================================
+  // Test 14 (Phase 8): Reboot / Recovery from Firewall State Loss
+  // =========================================================================
+  console.log('Running Test 14: Reboot / Recovery from firewall state loss...');
+  {
+    const { firewall, state } = createMockFirewall();
+    const mac = '52:54:00:CE:1C:BE';
+
+    const exhaustedQuota: DeviceQuota = {
+      mac,
+      quotaBytes: 1000,
+      usedBytes: 1000,
+      remainingBytes: 0,
+      percentage: 100,
+      status: 'exhausted',
+      createdAt: '',
+      updatedAt: '',
+    };
+
+    const mockQuotaService = {
+      refreshAllQuotas: async () => [exhaustedQuota],
+    } as unknown as QuotaService;
+
+    const monitor1 = new QuotaEnforcementMonitor(mockQuotaService, firewall, {
+      logger: silentLogger,
+    });
+
+    // 1. Initial sync: device is blocked
+    await monitor1.sync();
+    assert.equal(state.blockedMacs.has(mac), true);
+
+    // 2. Simulate router reboot: nftables set state disappears, but repository retains ownership
+    state.blockedMacs.clear();
+    assert.equal(state.blockedMacs.has(mac), false, 'Simulated reboot cleared nftables set');
+
+    // 3. Controller restarts: brand new monitor instance starts up
+    const monitor2 = new QuotaEnforcementMonitor(mockQuotaService, firewall, {
+      logger: silentLogger,
+    });
+
+    // 4. Sync runs: monitor checks isActuallyInNft, finds MAC missing from nftables, and re-blocks it
+    await monitor2.sync();
+    assert.equal(state.blockedMacs.has(mac), true, 'Device automatically re-blocked after router reboot');
+
+    console.log('✅ Test 14 Passed: Quota state recovered and re-applied to firewall after reboot');
+  }
+
+  // =========================================================================
+  // Test 15 (Phase 9): Multi-Device Isolation Test
+  // =========================================================================
+  console.log('Running Test 15: Multi-Device isolation test across 3 devices...');
+  {
+    const { firewall, state } = createMockFirewall();
+
+    const devA: DeviceQuota = { mac: '52:54:00:AA:AA:AA', quotaBytes: 1000, usedBytes: 0, remainingBytes: 1000, percentage: 0, status: 'active', createdAt: '', updatedAt: '' };
+    const devB: DeviceQuota = { mac: '52:54:00:BB:BB:BB', quotaBytes: 5000, usedBytes: 0, remainingBytes: 5000, percentage: 0, status: 'active', createdAt: '', updatedAt: '' };
+    const devC: DeviceQuota = { mac: '52:54:00:CC:CC:CC', quotaBytes: 10000, usedBytes: 0, remainingBytes: 10000, percentage: 0, status: 'active', createdAt: '', updatedAt: '' };
+
+    const quotas = [devA, devB, devC];
+    const mockQuotaService = {
+      refreshAllQuotas: async () => quotas,
+    } as unknown as QuotaService;
+
+    const monitor = new QuotaEnforcementMonitor(mockQuotaService, firewall, {
+      logger: silentLogger,
+    });
+
+    // Initial state: all active
+    await monitor.sync();
+    assert.equal(state.blockedMacs.size, 0);
+
+    // Step 1: Device A exhausts quota
+    devA.usedBytes = 1000;
+    devA.remainingBytes = 0;
+    devA.percentage = 100;
+    devA.status = 'exhausted';
+
+    await monitor.sync();
+    assert.equal(state.blockedMacs.has('52:54:00:AA:AA:AA'), true, 'Device A must be blocked');
+    assert.equal(state.blockedMacs.has('52:54:00:BB:BB:BB'), false, 'Device B must remain unblocked');
+    assert.equal(state.blockedMacs.has('52:54:00:CC:CC:CC'), false, 'Device C must remain unblocked');
+
+    // Step 2: Device B exhausts quota
+    devB.usedBytes = 5000;
+    devB.remainingBytes = 0;
+    devB.percentage = 100;
+    devB.status = 'exhausted';
+
+    await monitor.sync();
+    assert.equal(state.blockedMacs.has('52:54:00:AA:AA:AA'), true, 'Device A remains blocked');
+    assert.equal(state.blockedMacs.has('52:54:00:BB:BB:BB'), true, 'Device B must be blocked');
+    assert.equal(state.blockedMacs.has('52:54:00:CC:CC:CC'), false, 'Device C must remain unblocked');
+
+    // Step 3: Device C exhausts quota
+    devC.usedBytes = 10000;
+    devC.remainingBytes = 0;
+    devC.percentage = 100;
+    devC.status = 'exhausted';
+
+    await monitor.sync();
+    assert.equal(state.blockedMacs.has('52:54:00:AA:AA:AA'), true);
+    assert.equal(state.blockedMacs.has('52:54:00:BB:BB:BB'), true);
+    assert.equal(state.blockedMacs.has('52:54:00:CC:CC:CC'), true);
+
+    // Step 4: Admin resets Device A only
+    devA.usedBytes = 0;
+    devA.remainingBytes = 1000;
+    devA.percentage = 0;
+    devA.status = 'active';
+
+    await monitor.sync();
+    assert.equal(state.blockedMacs.has('52:54:00:AA:AA:AA'), false, 'Device A unblocked after reset');
+    assert.equal(state.blockedMacs.has('52:54:00:BB:BB:BB'), true, 'Device B remains blocked');
+    assert.equal(state.blockedMacs.has('52:54:00:CC:CC:CC'), true, 'Device C remains blocked');
+
+    console.log('✅ Test 15 Passed: 3-device independent quota isolation verified');
+  }
+
+  // =========================================================================
+  // Test 16 (Phase 11): Concurrency & Overlapping Sync Prevention
+  // =========================================================================
+  console.log('Running Test 16: Concurrency and overlapping sync prevention...');
+  {
+    const { firewall } = createMockFirewall();
+    let concurrentCallCount = 0;
+    let maxSimultaneousRuns = 0;
+    let currentRuns = 0;
+
+    const mockQuotaService = {
+      refreshAllQuotas: async () => {
+        currentRuns++;
+        maxSimultaneousRuns = Math.max(maxSimultaneousRuns, currentRuns);
+        await new Promise((r) => setTimeout(r, 40));
+        currentRuns--;
+        concurrentCallCount++;
+        return [];
+      },
+    } as unknown as QuotaService;
+
+    const monitor = new QuotaEnforcementMonitor(mockQuotaService, firewall, {
+      logger: silentLogger,
+    });
+
+    // Launch 3 simultaneous sync() requests
+    const p1 = monitor.sync();
+    const p2 = monitor.sync();
+    const p3 = monitor.sync();
+
+    await Promise.all([p1, p2, p3]);
+
+    // Mutex lock ensures max simultaneous executions is strictly 1
+    assert.equal(maxSimultaneousRuns, 1, 'Never run overlapping cycles simultaneously');
+    console.log('✅ Test 16 Passed: Overlapping execution prevention lock verified');
   }
 
   // =========================================================================

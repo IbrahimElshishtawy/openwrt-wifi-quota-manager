@@ -161,7 +161,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(usageRoutes);
   await app.register(quotaRoutes);
   await app.register(firewallRoutes);
-  await app.register(quotaEnforcementRoutes);
+  await app.register(quotaEnforcementRoutes, { monitor: quotaEnforcementMonitor });
 
   // Stop background monitor upon application close
   app.addHook('onClose', async () => {

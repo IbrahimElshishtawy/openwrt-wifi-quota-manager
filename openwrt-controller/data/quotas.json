@@ -1,14 +1,1 @@
-[
-  {
-    "mac": "52:54:00:CE:1C:BE",
-    "quotaBytes": 100000,
-    "lastSeenTotalBytes": 5040,
-    "accumulatedUsedBytes": 0,
-    "usedBytes": 0,
-    "remainingBytes": 100000,
-    "percentage": 0,
-    "status": "active",
-    "createdAt": "2026-09-26T17:27:12.103Z",
-    "updatedAt": "2026-09-26T17:29:08.634Z"
-  }
-]
+[]

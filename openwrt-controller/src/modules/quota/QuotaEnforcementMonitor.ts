@@ -243,9 +243,10 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
               continue;
             }
 
-            // Verify if already blocked in firewall (handles service restarts gracefully)
-            const isAlreadyBlocked = await this.firewallService.isBlocked(mac, 'quota');
-            if (isAlreadyBlocked) {
+            // Verify if already blocked in firewall (both recorded in repository AND actively present in nftables)
+            const isQuotaRecorded = await this.firewallService.isBlocked(mac, 'quota');
+            const isActuallyInNft = await this.firewallService.isBlocked(mac);
+            if (isQuotaRecorded && isActuallyInNft) {
               this.enforcementState.set(mac, 'blocked');
               unchangedCount++;
               results.push({

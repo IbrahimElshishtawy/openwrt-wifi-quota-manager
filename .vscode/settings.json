@@ -10,5 +10,6 @@
     "openwrt/scripts",
     "openwrt/api",
     "openwrt/tests"
-  ]
+  ],
+  "cmake.sourceDirectory": "/home/ibrahim-elshishtawy/flutter project/openwrt-wifi-quota-manager/flutter_client/linux"
 }
