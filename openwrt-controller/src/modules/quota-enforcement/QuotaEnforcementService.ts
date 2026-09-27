@@ -61,10 +61,14 @@ export class QuotaEnforcementService {
 
       // Quota limit exhausted: block the device
       this.logger.info(
-        `Quota exhausted for ${mac} (used=${quota.usedBytes}, quota=${quota.quotaBytes}) -> blocking device`
+        `[QuotaReconciliation] MAC=${mac} desired=blocked actual=unblocked action=block`
       );
 
       await this.firewallService.blockDevice(mac, 'quota');
+
+      this.logger.info(
+        `[QuotaReconciliation] MAC=${mac} desired=blocked actual=unblocked action=block result=success`
+      );
 
       return {
         mac,
@@ -81,10 +85,14 @@ export class QuotaEnforcementService {
       if (isQuotaBlocked) {
         // Quota is active and this device was previously blocked by quota enforcement
         this.logger.info(
-          `Quota became active for ${mac} (used=${quota.usedBytes}, quota=${quota.quotaBytes}) -> removing quota-enforced block`
+          `[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=unblock`
         );
 
         await this.firewallService.unblockDevice(mac, 'quota');
+
+        this.logger.info(
+          `[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=unblock result=success`
+        );
 
         return {
           mac,
@@ -187,7 +195,13 @@ export class QuotaEnforcementService {
         if (!currentQuotaMacs.has(norm)) {
           const isManual = await this.firewallService.isBlocked(norm, 'manual');
           if (!isManual) {
+            this.logger.info(
+              `[QuotaReconciliation] MAC=${norm} desired=unblocked actual=blocked action=unblock`
+            );
             await this.firewallService.unblockDevice(norm, 'quota');
+            this.logger.info(
+              `[QuotaReconciliation] MAC=${norm} desired=unblocked actual=blocked action=unblock result=success`
+            );
             unblockedCount++;
             results.push({
               mac: norm,

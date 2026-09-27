@@ -290,8 +290,11 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
             // DESIRED: BLOCKED (quota is exhausted)
             const isQuotaRecorded = await this.firewallService.isBlocked(mac, 'quota');
 
-            if (isActuallyBlocked && isQuotaRecorded) {
-              // Already blocked in nftables and recorded in ownership state: safe idempotent no-op
+            if (isActuallyBlocked) {
+              // Already blocked in nftables: ensure block ownership is recorded in repository without redundant commands
+              if (!isQuotaRecorded) {
+                await this.firewallService.blockDevice(mac, 'quota');
+              }
               this.enforcementState.set(mac, 'blocked');
               unchangedCount++;
               results.push({
@@ -302,7 +305,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
                 reason: 'Already blocked in firewall',
               });
             } else {
-              // MISSING BLOCK: (Newly exhausted, router rebooted, or missing quota block ownership)
+              // MISSING BLOCK: (Newly exhausted or router rebooted with cleared nftables set)
               this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=blocked actual=unblocked action=block`);
               await this.firewallService.blockDevice(mac, 'quota');
               this.enforcementState.set(mac, 'blocked');
