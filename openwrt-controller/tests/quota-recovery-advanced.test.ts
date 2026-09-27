@@ -123,7 +123,7 @@ async function runRecoveryAdvancedTests() {
     const freshQuotaRepo = new FileQuotaRepository(quotaFile);
     const freshFwRepo = new FileFirewallRepository(firewallFile);
     const freshUsage: UsageService = {
-      getDeviceUsage: async () => [{ mac: macA, totalBytes: 1500, rxBytes: 500, txBytes: 1000, ip: '192.168.50.10' } as DeviceUsage],
+      getDeviceUsage: async () => [{ mac: macA, totalBytes: 1500, downloadBytes: 500, uploadBytes: 1000, ip: '192.168.50.10' }],
     } as unknown as UsageService;
 
     const freshQuotaService = new QuotaService(freshQuotaRepo, freshUsage, mockDevices);
@@ -170,7 +170,7 @@ async function runRecoveryAdvancedTests() {
     await mockNft.addBlockedMac(macB);
 
     const freshUsage: UsageService = {
-      getDeviceUsage: async () => [{ mac: macB, totalBytes: 200, rxBytes: 100, txBytes: 100, ip: '192.168.50.20' } as DeviceUsage],
+      getDeviceUsage: async () => [{ mac: macB, totalBytes: 200, downloadBytes: 100, uploadBytes: 100, ip: '192.168.50.20' }],
     } as unknown as UsageService;
 
     const freshQuotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
@@ -215,7 +215,7 @@ async function runRecoveryAdvancedTests() {
     assert.equal(mockNft.blockedMacs.size, 0);
 
     const freshUsage: UsageService = {
-      getDeviceUsage: async () => [{ mac: macC, totalBytes: 1000, rxBytes: 500, txBytes: 500, ip: '192.168.50.30' } as DeviceUsage],
+      getDeviceUsage: async () => [{ mac: macC, totalBytes: 1000, downloadBytes: 500, uploadBytes: 500, ip: '192.168.50.30' }],
     } as unknown as UsageService;
 
     const freshQuotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
@@ -296,7 +296,7 @@ async function runRecoveryAdvancedTests() {
     await mockNft.addBlockedMac(macE);
 
     const freshUsage: UsageService = {
-      getDeviceUsage: async () => [{ mac: macE, totalBytes: 100, rxBytes: 50, txBytes: 50, ip: '192.168.50.10' } as DeviceUsage],
+      getDeviceUsage: async () => [{ mac: macE, totalBytes: 100, downloadBytes: 50, uploadBytes: 50, ip: '192.168.50.10' }],
     } as unknown as UsageService;
 
     const freshQuotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
@@ -343,7 +343,7 @@ async function runRecoveryAdvancedTests() {
     await mockNft.addBlockedMac(macF);
 
     const freshUsage: UsageService = {
-      getDeviceUsage: async () => [{ mac: macF, totalBytes: 2000, rxBytes: 1000, txBytes: 1000, ip: '192.168.50.10' } as DeviceUsage],
+      getDeviceUsage: async () => [{ mac: macF, totalBytes: 2000, downloadBytes: 1000, uploadBytes: 1000, ip: '192.168.50.10' }],
     } as unknown as UsageService;
 
     const freshQuotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
@@ -411,7 +411,7 @@ async function runRecoveryAdvancedTests() {
     let currentUsageBytes = 500;
 
     const usageService: UsageService = {
-      getDeviceUsage: async () => [{ mac, totalBytes: currentUsageBytes, rxBytes: 250, txBytes: 250, ip: '192.168.50.10' } as DeviceUsage],
+      getDeviceUsage: async () => [{ mac, totalBytes: currentUsageBytes, downloadBytes: 250, uploadBytes: 250, ip: '192.168.50.10' }],
     } as unknown as UsageService;
 
     const quotaService = new QuotaService(quotaRepo, usageService, mockDevices);
