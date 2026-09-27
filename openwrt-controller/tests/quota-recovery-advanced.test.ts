@@ -26,7 +26,7 @@ class MockNftablesClient implements INftablesClient {
   public addCalls: string[] = [];
   public deleteCalls: string[] = [];
 
-  public async ensureRuleset(): Promise<void> {}
+  public async ensureRuleset(): Promise<void> { }
 
   public async addBlockedMac(mac: string): Promise<void> {
     const norm = mac.toUpperCase();
@@ -73,10 +73,10 @@ function createMockDevicesService(): DevicesService {
 }
 
 const silentLogger = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  debug: () => {},
+  info: () => { },
+  warn: () => { },
+  error: () => { },
+  debug: () => { },
 };
 
 async function runRecoveryAdvancedTests() {
