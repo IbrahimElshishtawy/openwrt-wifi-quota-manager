@@ -13,13 +13,33 @@ export class InMemoryQuotaRepository implements IQuotaRepository {
     }
   }
 
-  public async findById(mac: string): Promise<DeviceQuotaRecord | null> {
+  public async getAll(): Promise<DeviceQuotaRecord[]> {
+    return Array.from(this.records.values()).map((r) => ({ ...r }));
+  }
+
+  public async getByMac(mac: string): Promise<DeviceQuotaRecord | null> {
     const rec = this.records.get(mac);
     return rec ? { ...rec } : null;
   }
 
+  public async create(record: DeviceQuotaRecord): Promise<void> {
+    await this.save(record);
+  }
+
+  public async update(record: DeviceQuotaRecord): Promise<void> {
+    await this.save(record);
+  }
+
+  public async exists(mac: string): Promise<boolean> {
+    return this.records.has(mac);
+  }
+
+  public async findById(mac: string): Promise<DeviceQuotaRecord | null> {
+    return this.getByMac(mac);
+  }
+
   public async findAll(): Promise<DeviceQuotaRecord[]> {
-    return Array.from(this.records.values()).map((r) => ({ ...r }));
+    return this.getAll();
   }
 
   public async save(record: DeviceQuotaRecord): Promise<void> {

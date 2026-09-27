@@ -38,6 +38,11 @@ export interface IFirewallService {
   getBlockedDevices(source?: BlockSource): Promise<string[]>;
 
   /**
+   * Returns all MAC addresses currently present in nftables table inet quota_enforcement set blocked_macs.
+   */
+  getQuotaBlockedDevices?(): Promise<string[]>;
+
+  /**
    * Validates and standardizes a MAC address string.
    */
   validateAndNormalizeMac?(rawMac: string): string;

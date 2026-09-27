@@ -73,7 +73,10 @@ export class FileQuotaRepository implements IQuotaRepository {
         const jsonContent = JSON.stringify(records, null, 2);
 
         const tempPath = `${this.filePath}.tmp.${Date.now()}.${Math.random().toString(36).substring(2, 8)}`;
-        await fs.promises.writeFile(tempPath, jsonContent, 'utf-8');
+        const handle = await fs.promises.open(tempPath, 'w');
+        await handle.writeFile(jsonContent, 'utf-8');
+        await handle.sync();
+        await handle.close();
         await fs.promises.rename(tempPath, this.filePath);
       } catch (err) {
         throw new QuotaStorageError(
@@ -86,15 +89,36 @@ export class FileQuotaRepository implements IQuotaRepository {
     return this.writeQueue;
   }
 
-  public async findById(mac: string): Promise<DeviceQuotaRecord | null> {
+  public async getAll(): Promise<DeviceQuotaRecord[]> {
+    const cache = await this.ensureInitialized();
+    return Array.from(cache.values()).map((r) => ({ ...r }));
+  }
+
+  public async getByMac(mac: string): Promise<DeviceQuotaRecord | null> {
     const cache = await this.ensureInitialized();
     const record = cache.get(mac);
     return record ? { ...record } : null;
   }
 
-  public async findAll(): Promise<DeviceQuotaRecord[]> {
+  public async create(record: DeviceQuotaRecord): Promise<void> {
+    await this.save(record);
+  }
+
+  public async update(record: DeviceQuotaRecord): Promise<void> {
+    await this.save(record);
+  }
+
+  public async exists(mac: string): Promise<boolean> {
     const cache = await this.ensureInitialized();
-    return Array.from(cache.values()).map((r) => ({ ...r }));
+    return cache.has(mac);
+  }
+
+  public async findById(mac: string): Promise<DeviceQuotaRecord | null> {
+    return this.getByMac(mac);
+  }
+
+  public async findAll(): Promise<DeviceQuotaRecord[]> {
+    return this.getAll();
   }
 
   public async save(record: DeviceQuotaRecord): Promise<void> {

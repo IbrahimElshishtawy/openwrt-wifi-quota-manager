@@ -19,12 +19,24 @@ const startServer = async (): Promise<void> => {
     );
   }
 
-  // 3. Start Quota Enforcement Monitor
+  // 3. Load Persistent Quotas & Reconcile Firewall (Startup Recovery)
   if (env.QUOTA_ENFORCEMENT_ENABLED && env.NODE_ENV !== 'test') {
-    quotaEnforcementMonitor.start();
+    try {
+      app.log.info('[QuotaRecovery] Starting initial startup recovery & firewall reconciliation...');
+      await quotaEnforcementMonitor.reconcile();
+      app.log.info('[QuotaRecovery] Initial startup recovery completed successfully');
+    } catch (recoveryErr) {
+      app.log.warn(
+        recoveryErr,
+        '[QuotaRecovery] Initial recovery warning: unable to complete startup reconciliation. Periodic monitor will retry.'
+      );
+    }
+
+    // 4. Start Quota Enforcement Monitor after initial reconciliation completes
+    quotaEnforcementMonitor.start({ skipInitialSync: true });
   }
 
-  // 4. Start HTTP server
+  // 5. Start HTTP server
   try {
     const address = await app.listen({
       port: env.PORT,

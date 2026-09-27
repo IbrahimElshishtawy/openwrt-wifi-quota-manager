@@ -96,6 +96,14 @@ export class FirewallService implements IFirewallService {
   }
 
   /**
+   * Returns all MAC addresses currently present in nftables table inet quota_enforcement set blocked_macs.
+   * Directly reflects the actual OpenWrt firewall state.
+   */
+  public async getQuotaBlockedDevices(): Promise<string[]> {
+    return this.nftables.listBlockedMacs();
+  }
+
+  /**
    * Checks whether a specific MAC address is currently blocked.
    * If source is provided, checks if it is blocked by that specific source.
    */

@@ -6,23 +6,38 @@ import type { DeviceQuotaRecord } from '../types.js';
  */
 export interface IQuotaRepository {
   /**
-   * Retrieves a quota record by normalized MAC address.
-   */
-  findById(mac: string): Promise<DeviceQuotaRecord | null>;
-
-  /**
    * Retrieves all stored quota records.
    */
-  findAll(): Promise<DeviceQuotaRecord[]>;
+  getAll(): Promise<DeviceQuotaRecord[]>;
 
   /**
-   * Saves or updates a quota record.
+   * Retrieves a quota record by normalized MAC address.
    */
-  save(record: DeviceQuotaRecord): Promise<void>;
+  getByMac(mac: string): Promise<DeviceQuotaRecord | null>;
+
+  /**
+   * Creates a new quota record.
+   */
+  create(record: DeviceQuotaRecord): Promise<void>;
+
+  /**
+   * Updates an existing quota record.
+   */
+  update(record: DeviceQuotaRecord): Promise<void>;
 
   /**
    * Deletes a quota record by normalized MAC address.
    * Returns true if deleted, false if not found.
    */
   delete(mac: string): Promise<boolean>;
+
+  /**
+   * Checks whether a quota record exists for the given MAC address.
+   */
+  exists(mac: string): Promise<boolean>;
+
+  // Backward-compatibility aliases for existing codebase & tests
+  findById(mac: string): Promise<DeviceQuotaRecord | null>;
+  findAll(): Promise<DeviceQuotaRecord[]>;
+  save(record: DeviceQuotaRecord): Promise<void>;
 }
