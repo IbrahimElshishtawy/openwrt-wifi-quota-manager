@@ -237,7 +237,15 @@ export class NftablesClient implements INftablesClient {
         for (const item of data?.nftables || []) {
           if (item.set && item.set.name === set) {
             const elements = item.set.elem || [];
-            return elements.map((elem: unknown) => normalizeMac(String(elem)));
+            return elements
+              .map((elem: unknown) => {
+                try {
+                  return normalizeMac(String(elem));
+                } catch {
+                  return null;
+                }
+              })
+              .filter((m: string | null): m is string => Boolean(m));
           }
         }
       } catch {
@@ -247,7 +255,14 @@ export class NftablesClient implements INftablesClient {
       // 2. Parse plaintext regex output
       const matches = res.stdout.match(/([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})/g);
       if (matches) {
-        const unique = new Set(matches.map((m) => normalizeMac(m)));
+        const unique = new Set<string>();
+        for (const m of matches) {
+          try {
+            unique.add(normalizeMac(m));
+          } catch {
+            // Ignore malformed match
+          }
+        }
         return Array.from(unique);
       }
 
