@@ -25,26 +25,43 @@ class MockNftablesClient implements INftablesClient {
   public blockedMacs = new Set<string>();
   public addCalls: string[] = [];
   public deleteCalls: string[] = [];
+  public failMacs = new Set<string>();
+  public tableExists = true;
+  public ensureRulesetCalls = 0;
 
-  public async ensureRuleset(): Promise<void> { }
+  public async ensureRuleset(): Promise<void> {
+    this.ensureRulesetCalls++;
+    this.tableExists = true;
+  }
 
   public async addBlockedMac(mac: string): Promise<void> {
     const norm = mac.toUpperCase();
+    if (this.failMacs.has(norm)) {
+      throw new Error(`Failed to add MAC ${norm} to nftables set: Simulated router failure`);
+    }
     this.addCalls.push(norm);
     this.blockedMacs.add(norm);
   }
 
   public async deleteBlockedMac(mac: string): Promise<void> {
     const norm = mac.toUpperCase();
+    if (this.failMacs.has(norm)) {
+      throw new Error(`Failed to delete MAC ${norm} from nftables set: Simulated router failure`);
+    }
     this.deleteCalls.push(norm);
     this.blockedMacs.delete(norm);
   }
 
   public async hasBlockedMac(mac: string): Promise<boolean> {
+    if (!this.tableExists) return false;
     return this.blockedMacs.has(mac.toUpperCase());
   }
 
   public async listBlockedMacs(): Promise<string[]> {
+    if (!this.tableExists) {
+      await this.ensureRuleset();
+      return [];
+    }
     return Array.from(this.blockedMacs);
   }
 }
@@ -67,8 +84,10 @@ function createMockDevicesService(): DevicesService {
       { mac: 'AA:BB:CC:DD:EE:02', ip: '192.168.50.20', hostname: 'client-2', interface: 'br-lan' },
       { mac: 'AA:BB:CC:DD:EE:03', ip: '192.168.50.30', hostname: 'client-3', interface: 'br-lan' },
       { mac: 'AA:BB:CC:DD:EE:04', ip: '192.168.50.40', hostname: 'client-4', interface: 'br-lan' },
+      { mac: 'AA:BB:CC:DD:EE:05', ip: '192.168.50.50', hostname: 'client-5', interface: 'br-lan' },
+      { mac: 'AA:BB:CC:DD:EE:06', ip: '192.168.50.60', hostname: 'client-6', interface: 'br-lan' },
     ],
-    isRealLanClient: () => true,
+    isRealLanClient: (device: { mac: string }) => !device.mac.startsWith('00:11:22:33:44'),
   } as unknown as DevicesService;
 }
 
@@ -394,6 +413,345 @@ async function runRecoveryAdvancedTests() {
     assert.equal(await fwRepo.hasBlockSource(macG, 'quota'), false, 'Quota ownership removed');
 
     console.log('✅ Scenario G Passed: Quota deleted leaves manual block completely safe');
+  }
+
+  // Scenario H: Multiple Devices Independent Reconciliation (Scenario 5)
+  {
+    console.log('Running Scenario H: Multiple devices independent reconciliation (A exhausted, B active, C exhausted, D active)...');
+    cleanup();
+    fs.mkdirSync(testDir, { recursive: true });
+
+    const quotaRepo = new FileQuotaRepository(quotaFile);
+    const fwRepo = new FileFirewallRepository(firewallFile);
+    const mockNft = new MockNftablesClient();
+    const mockDevices = createMockDevicesService();
+
+    const devA = 'AA:BB:CC:DD:EE:01';
+    const devB = 'AA:BB:CC:DD:EE:02';
+    const devC = 'AA:BB:CC:DD:EE:03';
+    const devD = 'AA:BB:CC:DD:EE:04';
+
+    await quotaRepo.create({
+      mac: devA,
+      quotaBytes: 1000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 1500,
+      usedBytes: 1500,
+      remainingBytes: 0,
+      percentage: 150,
+      status: 'exhausted',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await quotaRepo.create({
+      mac: devB,
+      quotaBytes: 5000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 500,
+      usedBytes: 500,
+      remainingBytes: 4500,
+      percentage: 10,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await quotaRepo.create({
+      mac: devC,
+      quotaBytes: 2000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 2500,
+      usedBytes: 2500,
+      remainingBytes: 0,
+      percentage: 125,
+      status: 'exhausted',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await quotaRepo.create({
+      mac: devD,
+      quotaBytes: 10000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 100,
+      usedBytes: 100,
+      remainingBytes: 9900,
+      percentage: 1,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const freshUsage: UsageService = {
+      getDeviceUsage: async () => [
+        { mac: devA, totalBytes: 1500, downloadBytes: 500, uploadBytes: 1000, ip: '192.168.50.10' },
+        { mac: devB, totalBytes: 500, downloadBytes: 200, uploadBytes: 300, ip: '192.168.50.20' },
+        { mac: devC, totalBytes: 2500, downloadBytes: 1000, uploadBytes: 1500, ip: '192.168.50.30' },
+        { mac: devD, totalBytes: 100, downloadBytes: 50, uploadBytes: 50, ip: '192.168.50.40' },
+      ],
+    } as unknown as UsageService;
+
+    const quotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
+    const firewallService = new FirewallService(mockNft, mockDevices, fwRepo);
+    const monitor = new QuotaEnforcementMonitor(quotaService, firewallService, { logger: silentLogger });
+
+    const result = await monitor.reconcile();
+    assert.ok(result);
+    assert.equal(result.blockedCount, 2, 'Devices A and C should be blocked');
+    assert.equal(result.unblockedCount, 0);
+    assert.equal(result.unchangedCount, 2, 'Devices B and D should be evaluated as unchanged/active');
+
+    assert.equal(mockNft.blockedMacs.has(devA), true, 'Device A must be blocked in nftables');
+    assert.equal(mockNft.blockedMacs.has(devB), false, 'Device B must remain unblocked');
+    assert.equal(mockNft.blockedMacs.has(devC), true, 'Device C must be blocked in nftables');
+    assert.equal(mockNft.blockedMacs.has(devD), false, 'Device D must remain unblocked');
+
+    console.log('✅ Scenario H Passed: Multiple devices reconciled with strict state isolation');
+  }
+
+  // Scenario I: Single Device Firewall Failure Isolation (Scenario 6)
+  {
+    console.log('Running Scenario I: Firewall operation failure on one device does not halt other devices...');
+    cleanup();
+    fs.mkdirSync(testDir, { recursive: true });
+
+    const quotaRepo = new FileQuotaRepository(quotaFile);
+    const fwRepo = new FileFirewallRepository(firewallFile);
+    const mockNft = new MockNftablesClient();
+    const mockDevices = createMockDevicesService();
+
+    const devA = 'AA:BB:CC:DD:EE:01';
+    const devB = 'AA:BB:CC:DD:EE:02';
+
+    // Device A will fail on router nftables
+    mockNft.failMacs.add(devA);
+
+    await quotaRepo.create({
+      mac: devA,
+      quotaBytes: 1000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 1500,
+      usedBytes: 1500,
+      remainingBytes: 0,
+      percentage: 150,
+      status: 'exhausted',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await quotaRepo.create({
+      mac: devB,
+      quotaBytes: 1000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 1500,
+      usedBytes: 1500,
+      remainingBytes: 0,
+      percentage: 150,
+      status: 'exhausted',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const freshUsage: UsageService = {
+      getDeviceUsage: async () => [
+        { mac: devA, totalBytes: 1500, downloadBytes: 500, uploadBytes: 1000, ip: '192.168.50.10' },
+        { mac: devB, totalBytes: 1500, downloadBytes: 500, uploadBytes: 1000, ip: '192.168.50.20' },
+      ],
+    } as unknown as UsageService;
+
+    const quotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
+    const firewallService = new FirewallService(mockNft, mockDevices, fwRepo);
+    const monitor = new QuotaEnforcementMonitor(quotaService, firewallService, { logger: silentLogger });
+
+    const result = await monitor.reconcile();
+    assert.ok(result);
+    assert.equal(result.errorCount, 1, 'Device A failure tracked in errorCount');
+    assert.equal(result.blockedCount, 1, 'Device B blocked successfully');
+    assert.equal(mockNft.blockedMacs.has(devB), true, 'Device B is blocked in nftables despite DevA failure');
+    assert.equal(mockNft.blockedMacs.has(devA), false, 'Device A could not be blocked due to router error');
+
+    console.log('✅ Scenario I Passed: Device failure isolated without halting synchronization');
+  }
+
+  // Scenario J: Idempotency under multiple consecutive sync cycles (Phase 4)
+  {
+    console.log('Running Scenario J: Idempotency under multiple consecutive syncs...');
+    cleanup();
+    fs.mkdirSync(testDir, { recursive: true });
+
+    const quotaRepo = new FileQuotaRepository(quotaFile);
+    const fwRepo = new FileFirewallRepository(firewallFile);
+    const mockNft = new MockNftablesClient();
+    const mockDevices = createMockDevicesService();
+
+    const devA = 'AA:BB:CC:DD:EE:01';
+    const devB = 'AA:BB:CC:DD:EE:02';
+
+    await quotaRepo.create({
+      mac: devA,
+      quotaBytes: 1000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 1500,
+      usedBytes: 1500,
+      remainingBytes: 0,
+      percentage: 150,
+      status: 'exhausted',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await quotaRepo.create({
+      mac: devB,
+      quotaBytes: 5000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 500,
+      usedBytes: 500,
+      remainingBytes: 4500,
+      percentage: 10,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const freshUsage: UsageService = {
+      getDeviceUsage: async () => [
+        { mac: devA, totalBytes: 1500, downloadBytes: 500, uploadBytes: 1000, ip: '192.168.50.10' },
+        { mac: devB, totalBytes: 500, downloadBytes: 200, uploadBytes: 300, ip: '192.168.50.20' },
+      ],
+    } as unknown as UsageService;
+
+    const quotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
+    const firewallService = new FirewallService(mockNft, mockDevices, fwRepo);
+    const monitor = new QuotaEnforcementMonitor(quotaService, firewallService, { logger: silentLogger });
+
+    // Cycle 1: DevA blocked, DevB unchanged
+    const r1 = await monitor.reconcile();
+    assert.equal(r1?.blockedCount, 1);
+    assert.equal(r1?.unchangedCount, 1);
+    assert.equal(mockNft.addCalls.length, 1);
+
+    // Cycles 2, 3, 4: must NOT issue duplicate operations
+    for (let c = 2; c <= 4; c++) {
+      const rx = await monitor.reconcile();
+      assert.equal(rx?.blockedCount, 0, `Cycle ${c} must have 0 blocked additions`);
+      assert.equal(rx?.unblockedCount, 0, `Cycle ${c} must have 0 unblocks`);
+      assert.equal(rx?.unchangedCount, 2, `Cycle ${c} must report both as unchanged`);
+      assert.equal(mockNft.addCalls.length, 1, `Total router add calls must remain 1 across cycle ${c}`);
+      assert.equal(mockNft.deleteCalls.length, 0, `Total router delete calls must remain 0 across cycle ${c}`);
+    }
+
+    assert.equal(mockNft.blockedMacs.has(devA), true);
+    assert.equal(mockNft.blockedMacs.has(devB), false);
+
+    console.log('✅ Scenario J Passed: Complete idempotency maintained across 4 consecutive cycles');
+  }
+
+  // Scenario K: Firewall State Disappearance (Scenario 4)
+  {
+    console.log('Running Scenario K: Firewall state disappears (table vanished -> restored -> re-blocked)...');
+    cleanup();
+    fs.mkdirSync(testDir, { recursive: true });
+
+    const quotaRepo = new FileQuotaRepository(quotaFile);
+    const fwRepo = new FileFirewallRepository(firewallFile);
+    const mockNft = new MockNftablesClient();
+    const mockDevices = createMockDevicesService();
+
+    const macK = 'AA:BB:CC:DD:EE:01';
+    await quotaRepo.create({
+      mac: macK,
+      quotaBytes: 1000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 2000,
+      usedBytes: 2000,
+      remainingBytes: 0,
+      percentage: 200,
+      status: 'exhausted',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const freshUsage: UsageService = {
+      getDeviceUsage: async () => [{ mac: macK, totalBytes: 2000, downloadBytes: 1000, uploadBytes: 1000, ip: '192.168.50.10' }],
+    } as unknown as UsageService;
+
+    const quotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
+    const firewallService = new FirewallService(mockNft, mockDevices, fwRepo);
+    const monitor = new QuotaEnforcementMonitor(quotaService, firewallService, { logger: silentLogger });
+
+    // Cycle 1: device is blocked
+    await monitor.reconcile();
+    assert.equal(mockNft.blockedMacs.has(macK), true);
+    assert.equal(mockNft.tableExists, true);
+
+    // SIMULATE DISASTER: Dedicated nftables table is wiped out (e.g. nft delete table inet quota_enforcement)
+    mockNft.tableExists = false;
+    mockNft.blockedMacs.clear();
+    mockNft.ensureRulesetCalls = 0;
+    mockNft.addCalls.length = 0;
+
+    // Cycle 2: Monitor reconciles
+    const recoveryResult = await monitor.reconcile();
+    assert.ok(recoveryResult);
+    assert.equal(mockNft.tableExists, true, 'Dedicated table must be recreated');
+    assert.ok(mockNft.ensureRulesetCalls > 0, 'ensureRuleset must have been invoked');
+    assert.equal(recoveryResult.blockedCount, 1, 'Missing block must be detected and applied');
+    assert.equal(mockNft.blockedMacs.has(macK), true, 'Device must be re-blocked in nftables');
+    assert.equal(mockNft.addCalls.length, 1, 'Device re-added to set blocked_macs');
+
+    console.log('✅ Scenario K Passed: Disappeared firewall table recreated and device re-blocked');
+  }
+
+  // Scenario L: Quota Block Cleanup After Quota Deletion (Phase 3 #10)
+  {
+    console.log('Running Scenario L: Quota block cleanup after quota deletion...');
+    cleanup();
+    fs.mkdirSync(testDir, { recursive: true });
+
+    const quotaRepo = new FileQuotaRepository(quotaFile);
+    const fwRepo = new FileFirewallRepository(firewallFile);
+    const mockNft = new MockNftablesClient();
+    const mockDevices = createMockDevicesService();
+
+    const macL = 'AA:BB:CC:DD:EE:01';
+    await quotaRepo.create({
+      mac: macL,
+      quotaBytes: 1000,
+      lastSeenTotalBytes: 0,
+      accumulatedUsedBytes: 2000,
+      usedBytes: 2000,
+      remainingBytes: 0,
+      percentage: 200,
+      status: 'exhausted',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const freshUsage: UsageService = {
+      getDeviceUsage: async () => [{ mac: macL, totalBytes: 2000, downloadBytes: 1000, uploadBytes: 1000, ip: '192.168.50.10' }],
+    } as unknown as UsageService;
+
+    const quotaService = new QuotaService(quotaRepo, freshUsage, mockDevices);
+    const firewallService = new FirewallService(mockNft, mockDevices, fwRepo);
+    const monitor = new QuotaEnforcementMonitor(quotaService, firewallService, { logger: silentLogger });
+
+    // Cycle 1: device is blocked
+    await monitor.reconcile();
+    assert.equal(mockNft.blockedMacs.has(macL), true);
+    assert.equal(await fwRepo.hasBlockSource(macL, 'quota'), true);
+
+    // Delete quota from repository
+    await quotaRepo.delete(macL);
+
+    // Cycle 2: monitor reconciles deleted quota
+    const unblockResult = await monitor.reconcile();
+    assert.ok(unblockResult);
+    assert.equal(unblockResult.unblockedCount, 1, 'Deleted quota device must be unblocked');
+    assert.equal(mockNft.blockedMacs.has(macL), false, 'Device must be removed from nftables');
+    assert.equal(await fwRepo.hasBlockSource(macL, 'quota'), false, 'Quota ownership must be cleared');
+
+    console.log('✅ Scenario L Passed: Quota block cleanly unblocked and removed upon quota deletion');
   }
 
   // 8. Full End-to-End Restart & Reconciliation Pipeline Simulation

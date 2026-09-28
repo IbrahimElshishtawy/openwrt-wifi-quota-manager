@@ -86,6 +86,8 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
   private readonly enabled: boolean;
   private readonly logger: IEnforcementLogger;
 
+  private isInitialRun = true;
+
   // In-memory enforcement state cache to track transitions: Map<MAC, "blocked" | "unblocked">
   private enforcementState = new Map<string, 'blocked' | 'unblocked'>();
 
@@ -233,7 +235,17 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         };
       }
 
-      // 2. Fetch actual blocked MACs from firewall (inspecting table inet quota_enforcement set blocked_macs)
+      // 2. Ensure dedicated nftables ruleset is provisioned (handles firewall state loss / reboot)
+      if (typeof this.firewallService.ensureRuleset === 'function') {
+        try {
+          await this.firewallService.ensureRuleset();
+        } catch (rulesetErr: unknown) {
+          const errMsg = this.sanitizeErrorMessage(rulesetErr);
+          this.logger.warn(`Failed to verify or initialize firewall ruleset: ${errMsg}`);
+        }
+      }
+
+      // 3. Fetch actual blocked MACs from firewall (inspecting table inet quota_enforcement set blocked_macs)
       let actualBlockedList: string[] = [];
       try {
         actualBlockedList = typeof this.firewallService.getQuotaBlockedDevices === 'function'
@@ -274,9 +286,19 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         }
       }
 
-      this.logger.info('[QuotaRecovery] Starting firewall reconciliation');
-      this.logger.info(`[QuotaRecovery] Desired blocked devices: ${desiredBlockedSet.size}`);
-      this.logger.info(`[QuotaRecovery] Actual blocked devices: ${actualBlockedSet.size}`);
+      let reconciliationStartedLogged = false;
+      const logReconciliationStarted = () => {
+        if (!reconciliationStartedLogged) {
+          this.logger.info('Reconciliation started');
+          reconciliationStartedLogged = true;
+        }
+      };
+
+      if (this.isInitialRun) {
+        logReconciliationStarted();
+        this.logger.info(`Desired blocked devices: ${desiredBlockedSet.size}`);
+        this.logger.info(`Actual blocked devices: ${actualBlockedSet.size}`);
+      }
 
       let blockedCount = 0;
       let unblockedCount = 0;
@@ -314,7 +336,8 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
               });
             } else {
               // MISSING BLOCK: (Newly exhausted or router rebooted with cleared nftables set)
-              this.logger.info(`[QuotaRecovery] Blocking missing quota enforcement: ${mac}`);
+              logReconciliationStarted();
+              this.logger.info(`Quota exhausted, firewall block required: ${mac}`);
               this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=blocked actual=unblocked action=block`);
               await this.firewallService.blockDevice(mac, 'quota');
               this.enforcementState.set(mac, 'blocked');
@@ -336,11 +359,14 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
             if (isQuotaRecorded || (isActuallyBlocked && !isManualBlocked)) {
               if (isManualBlocked) {
                 // Manual admin block protection: remove quota ownership, but manual block remains in nftables
-                this.logger.info(`[QuotaRecovery] Preserving manual block: ${mac}`);
-                await this.firewallService.unblockDevice(mac, 'quota');
+                if (isQuotaRecorded) {
+                  logReconciliationStarted();
+                  this.logger.info(`Preserving manual block: ${mac}`);
+                  await this.firewallService.unblockDevice(mac, 'quota');
+                  this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=preserve reason="manual_block_protected"`);
+                }
                 this.enforcementState.set(mac, 'unblocked');
                 unchangedCount++;
-                this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=preserve reason="manual_block_protected"`);
                 results.push({
                   mac,
                   action: 'none',
@@ -350,7 +376,8 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
                 });
               } else {
                 // STALE BLOCK: Quota is active; unblock device to restore access
-                this.logger.info(`[QuotaRecovery] Removing quota enforcement: ${mac}`);
+                logReconciliationStarted();
+                this.logger.info(`Stale quota block removed: ${mac}`);
                 this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=unblock`);
                 await this.firewallService.unblockDevice(mac, 'quota');
                 this.enforcementState.set(mac, 'unblocked');
@@ -379,10 +406,12 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
           }
         } catch (devErr: unknown) {
           errorCount++;
+          logReconciliationStarted();
           const errMsg = this.sanitizeErrorMessage(devErr);
           const actionStr = desiredBlockedSet.has(mac) ? 'block' : 'unblock';
           const desiredStr = desiredBlockedSet.has(mac) ? 'blocked' : 'unblocked';
           const actualStr = actualBlockedSet.has(mac) ? 'blocked' : 'unblocked';
+          this.logger.error(`Device reconciliation failed for ${mac}: ${errMsg}`);
           this.logger.error(
             `[QuotaReconciliation] MAC=${mac} desired=${desiredStr} actual=${actualStr} action=${actionStr} result=error error="${errMsg}"`
           );
@@ -412,12 +441,12 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
               await this.firewallService.unblockDevice(blockedMac, 'quota');
             }
             // Protected manual block without a quota: preserved in nftables
-            this.logger.info(`[QuotaRecovery] Preserving manual block: ${blockedMac}`);
             continue;
           }
 
           // Device has no configured quota, is in nftables, and is NOT manually blocked
-          this.logger.info(`[QuotaRecovery] Removing orphan quota enforcement: ${blockedMac}`);
+          logReconciliationStarted();
+          this.logger.info(`Stale quota block removed: ${blockedMac}`);
           this.logger.info(`[QuotaReconciliation] MAC=${blockedMac} desired=unblocked actual=blocked action=unblock`);
           await this.firewallService.unblockDevice(blockedMac, 'quota');
           this.enforcementState.delete(blockedMac);
@@ -432,7 +461,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
           });
         } catch (err: unknown) {
           errorCount++;
+          logReconciliationStarted();
           const errMsg = this.sanitizeErrorMessage(err);
+          this.logger.error(`Device reconciliation failed for ${blockedMac}: ${errMsg}`);
           this.logger.error(
             `[QuotaReconciliation] MAC=${blockedMac} desired=unblocked actual=blocked action=unblock result=error error="${errMsg}"`
           );
@@ -447,14 +478,39 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         }
       }
 
-      // 6. Clean up in-memory state entries for MACs that no longer exist anywhere
+      // 6. Clean up any stale quota block repository ownership for MACs without quotas
+      try {
+        if (typeof this.firewallService.getBlockedDevices === 'function') {
+          const repoQuotaBlocked = await this.firewallService.getBlockedDevices('quota');
+          for (const repoMac of repoQuotaBlocked) {
+            const norm = repoMac.toUpperCase();
+            if (!desiredBlockedSet.has(norm) && !quotaMap.has(norm) && !actualBlockedSet.has(norm)) {
+              await this.firewallService.unblockDevice(norm, 'quota');
+            }
+          }
+        }
+      } catch {
+        // Safe no-op if source listing is unsupported
+      }
+
+      // 7. Clean up in-memory state entries for MACs that no longer exist anywhere
       for (const cachedMac of Array.from(this.enforcementState.keys())) {
         if (!quotaMap.has(cachedMac) && !actualBlockedSet.has(cachedMac)) {
           this.enforcementState.delete(cachedMac);
         }
       }
 
-      this.logger.info('[QuotaRecovery] Reconciliation completed');
+      if (blockedCount > 0 || unblockedCount > 0) {
+        this.logger.info(`Firewall state reconciled (${blockedCount} blocked, ${unblockedCount} unblocked, ${unchangedCount} unchanged)`);
+      } else if (this.isInitialRun) {
+        this.logger.info(`Firewall state reconciled (initial: ${quotas.length} evaluated, 0 changes required)`);
+      } else if (errorCount > 0) {
+        this.logger.error(`Reconciliation completed with ${errorCount} error(s)`);
+      } else {
+        this.logger.debug?.('Reconciliation completed with no changes');
+      }
+
+      this.isInitialRun = false;
 
       const durationMs = Date.now() - startTime;
       const cycleSuccess = errorCount === 0;
@@ -487,6 +543,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
    */
   public clearCache(): void {
     this.enforcementState.clear();
+    this.isInitialRun = true;
   }
 
   /**
