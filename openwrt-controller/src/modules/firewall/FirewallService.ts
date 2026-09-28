@@ -58,10 +58,12 @@ export class FirewallService implements IFirewallService {
   ) {}
 
   /**
-   * Idempotently initializes the dedicated nftables quota enforcement structure.
+   * Idempotently initializes the dedicated nftables quota enforcement structure
+   * and restores any persistent manual blocks if router state was lost.
    */
   public async initialize(): Promise<void> {
     await this.ensureRuleset();
+    await this.reconcileManualBlocks();
   }
 
   /**
@@ -69,6 +71,36 @@ export class FirewallService implements IFirewallService {
    */
   public async ensureRuleset(): Promise<void> {
     await this.nftables.ensureRuleset();
+  }
+
+  /**
+   * Reconciles manual administrative blocks with nftables.
+   * If the router rebooted and nftables state was lost, re-provisions any missing manual blocks.
+   * Safe and idempotent: checks whether element already exists before adding.
+   */
+  public async reconcileManualBlocks(): Promise<void> {
+    const manualMacs = await this.repository.listBlockedMacsBySource('manual');
+    if (manualMacs.length === 0) return;
+
+    for (const rawMac of manualMacs) {
+      try {
+        const normMac = normalizeMac(rawMac);
+        const isBlocked = await this.nftables.hasBlockedMac(normMac);
+        if (!isBlocked) {
+          await this.nftables.addBlockedMac(normMac);
+        }
+      } catch {
+        // Continue reconciling remaining manual blocks (error isolation)
+      }
+    }
+  }
+
+  /**
+   * Returns all MAC addresses recorded in the firewall repository with the given source ownership,
+   * regardless of whether they currently exist in nftables.
+   */
+  public async getRepositoryBlockedDevices(source?: BlockSource): Promise<string[]> {
+    return this.repository.listBlockedMacsBySource(source);
   }
 
   /**

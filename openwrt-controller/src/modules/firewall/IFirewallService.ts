@@ -43,6 +43,16 @@ export interface IFirewallService {
   getQuotaBlockedDevices?(): Promise<string[]>;
 
   /**
+   * Returns all MAC addresses recorded in the firewall repository with the given source ownership.
+   */
+  getRepositoryBlockedDevices?(source?: BlockSource): Promise<string[]>;
+
+  /**
+   * Reconciles manual administrative blocks with nftables.
+   */
+  reconcileManualBlocks?(): Promise<void>;
+
+  /**
    * Validates and standardizes a MAC address string.
    */
   validateAndNormalizeMac?(rawMac: string): string;

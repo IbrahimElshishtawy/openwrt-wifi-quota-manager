@@ -24,7 +24,7 @@ export interface QuotaEnforcementMonitorOptions {
 }
 
 export interface IQuotaEnforcementMonitor {
-  start(): Promise<void> | void;
+  start(options?: { skipInitialSync?: boolean }): Promise<void> | void;
   stop(): Promise<void> | void;
   sync(): Promise<void>;
   isRunning(): boolean;
@@ -63,20 +63,34 @@ export interface EnforcementMonitorStatus {
 }
 
 /**
- * Production-ready Quota Enforcement Monitor.
+ * ARCHITECTURE & SOURCE OF TRUTH:
  *
- * Coordinates:
- *   UsageService -> QuotaService -> QuotaEnforcementMonitor -> FirewallService -> nftables
+ * Logical Data Flow:
+ *   UsageService (nlbwmon cumulative traffic counters from OpenWrt)
+ *       ↓
+ *   QuotaService (evaluates usedBytes, remainingBytes, status: 'active' | 'exhausted')
+ *       ↓
+ *   Quota status (source of truth: database/file-backed FileQuotaRepository)
+ *       ↓
+ *   QuotaEnforcementMonitor (evaluates desired quota status vs actual router firewall state)
+ *       ↓
+ *   FirewallService (coordinates block ownership: manual vs quota-enforced)
+ *       ↓
+ *   nftables on OpenWrt (enforcement state: table inet quota_enforcement set blocked_macs)
  *
- * Responsibilities:
- * - Periodically and idempotently evaluates all quotas.
- * - Detects state transitions (active <-> exhausted).
- * - Only blocks devices that have exhausted their quota; LAN devices with active quotas remain online.
- * - Restores internet access (unblocks) immediately when a quota is reset or deleted.
- * - Maintains an in-memory enforcement state cache to avoid redundant SSH/nftables operations.
- * - Prevents overlapping executions using an active mutex lock (`isSyncing`).
- * - Isolates device errors so a failure on one device never stops processing other devices.
- * - Clean lifecycle management (start, stop, sync) with proper timer cleanup on shutdown.
+ * Source of Truth Principles:
+ * 1. The database/file-backed quota storage (FileQuotaRepository) is the authoritative source
+ *    of truth for:
+ *    - Quota existence
+ *    - Quota bandwidth limits
+ *    - Usage counter progression & baselines
+ *    - Active vs. exhausted status
+ * 2. The OpenWrt nftables state is the actual enforcement state.
+ * 3. In-memory caches are NEVER assumed to be authoritative; every cycle evaluates actual
+ *    quota records and actual nftables elements.
+ * 4. Manual firewall blocks created by administrators are strictly protected and never removed
+ *    by the quota enforcement system.
+ * 5. Device error isolation ensures a failure on one device never halts processing of others.
  */
 export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
   private timer: NodeJS.Timeout | null = null;
@@ -88,7 +102,8 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
   private isInitialRun = true;
 
-  // In-memory enforcement state cache to track transitions: Map<MAC, "blocked" | "unblocked">
+  // In-memory observation cache to record state transitions: Map<MAC, "blocked" | "unblocked">
+  // NOTE: This cache is strictly non-authoritative. Enforcement decisions always query QuotaService and nftables.
   private enforcementState = new Map<string, 'blocked' | 'unblocked'>();
 
   // Telemetry state
@@ -115,9 +130,10 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
   /**
    * Starts periodic quota enforcement.
    * Calling start() multiple times is safe and preserves a single timer.
+   * Executes startup reconciliation immediately unless skipped.
    * Does not start if enforcement is disabled.
    */
-  public start(options?: { skipInitialSync?: boolean }): void {
+  public async start(options?: { skipInitialSync?: boolean }): Promise<void> {
     if (!this.enabled) {
       this.logger.info('Quota enforcement monitor is disabled via configuration');
       return;
@@ -130,9 +146,13 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
     this.running = true;
     this.logger.info(`Started Quota Enforcement Monitor (interval: ${this.intervalMs}ms)`);
 
-    // 1. Run first synchronization cycle immediately unless skipped (e.g. after startup recovery)
+    // 1. Run first synchronization cycle immediately unless skipped (e.g. startup recovery already ran or explicitly skipped)
     if (!options?.skipInitialSync) {
-      void this.sync();
+      try {
+        await this.sync();
+      } catch (err: unknown) {
+        this.logger.warn(`Initial startup synchronization warning: ${this.sanitizeErrorMessage(err)}`);
+      }
     }
 
     // 2. Schedule periodic timer
@@ -242,6 +262,16 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         } catch (rulesetErr: unknown) {
           const errMsg = this.sanitizeErrorMessage(rulesetErr);
           this.logger.warn(`Failed to verify or initialize firewall ruleset: ${errMsg}`);
+        }
+      }
+
+      // Reconcile manual blocks if router state was lost/rebooted
+      if (typeof (this.firewallService as { reconcileManualBlocks?: () => Promise<void> }).reconcileManualBlocks === 'function') {
+        try {
+          await (this.firewallService as { reconcileManualBlocks: () => Promise<void> }).reconcileManualBlocks();
+        } catch (manualErr: unknown) {
+          const errMsg = this.sanitizeErrorMessage(manualErr);
+          this.logger.warn(`Failed to reconcile manual firewall blocks: ${errMsg}`);
         }
       }
 
@@ -392,7 +422,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
                 });
               }
             } else {
-              // Desired = unblocked, Actual = unblocked
+              // Desired = unblocked, Actual = unblocked (or manual admin block preserved)
               this.enforcementState.set(mac, 'unblocked');
               unchangedCount++;
               results.push({
@@ -400,7 +430,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
                 action: 'none',
                 quotaStatus: 'active',
                 success: true,
-                reason: 'Device is active and unblocked',
+                reason: isActuallyBlocked
+                  ? 'Active quota; device remains blocked by manual administrator block'
+                  : 'Device is active and unblocked',
               });
             }
           }
@@ -480,13 +512,15 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
       // 6. Clean up any stale quota block repository ownership for MACs without quotas
       try {
-        if (typeof this.firewallService.getBlockedDevices === 'function') {
-          const repoQuotaBlocked = await this.firewallService.getBlockedDevices('quota');
-          for (const repoMac of repoQuotaBlocked) {
-            const norm = repoMac.toUpperCase();
-            if (!desiredBlockedSet.has(norm) && !quotaMap.has(norm) && !actualBlockedSet.has(norm)) {
-              await this.firewallService.unblockDevice(norm, 'quota');
-            }
+        const repoQuotaBlocked = typeof (this.firewallService as { getRepositoryBlockedDevices?: (s?: string) => Promise<string[]> }).getRepositoryBlockedDevices === 'function'
+          ? await (this.firewallService as { getRepositoryBlockedDevices: (s?: string) => Promise<string[]> }).getRepositoryBlockedDevices('quota')
+          : (typeof this.firewallService.getBlockedDevices === 'function'
+              ? await this.firewallService.getBlockedDevices('quota')
+              : []);
+        for (const repoMac of repoQuotaBlocked) {
+          const norm = repoMac.toUpperCase();
+          if (!desiredBlockedSet.has(norm) && !quotaMap.has(norm)) {
+            await this.firewallService.unblockDevice(norm, 'quota');
           }
         }
       } catch {
