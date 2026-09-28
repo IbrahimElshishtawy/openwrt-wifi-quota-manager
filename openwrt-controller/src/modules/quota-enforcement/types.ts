@@ -24,6 +24,7 @@ export interface EnforcementCycleResult {
   results: DeviceEnforcementResult[];
   success: boolean;
   error?: string | undefined;
+  reconciliationId?: string | undefined;
 }
 
 export interface EnforcementMonitorStatus {
@@ -35,6 +36,16 @@ export interface EnforcementMonitorStatus {
   lastError: string | null;
   totalRuns: number;
   consecutiveErrors: number;
+  syncInProgress?: boolean;
+  lastStartedAt?: string | null;
+  lastCompletedAt?: string | null;
+  lastSuccessfulAt?: string | null;
+  lastFailureAt?: string | null;
+  lastDurationMs?: number | null;
+  devicesEvaluated?: number;
+  devicesBlocked?: number;
+  devicesUnblocked?: number;
+  reconciliationId?: string | null;
 }
 
 export interface QuotaEnforcementStatusResponse extends EnforcementMonitorStatus {

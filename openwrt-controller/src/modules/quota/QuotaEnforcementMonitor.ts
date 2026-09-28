@@ -1,8 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { env } from '../../config/env.js';
 import { QuotaService, quotaService as defaultQuotaService } from './QuotaService.js';
 import { FirewallService, firewallService as defaultFirewallService } from '../firewall/FirewallService.js';
 import type { IFirewallService } from '../firewall/IFirewallService.js';
 import type { DeviceQuota } from './types.js';
+import { Logger, logger as defaultStructuredLogger } from '../../infrastructure/logging/Logger.js';
+import type { ILogger } from '../../infrastructure/logging/logger.types.js';
+import { metricsService as defaultMetricsService, MetricsService } from '../../infrastructure/metrics/MetricsService.js';
+import { classifyError } from '../quota-enforcement/errors.js';
+import { CircuitBreaker, circuitBreaker as defaultCircuitBreaker } from '../../infrastructure/resilience/CircuitBreaker.js';
+import { RetryPolicy, retryPolicy as defaultRetryPolicy } from '../../infrastructure/resilience/RetryPolicy.js';
 
 export interface IEnforcementLogger {
   info(msg: string, ...args: unknown[]): void;
@@ -11,7 +18,7 @@ export interface IEnforcementLogger {
   debug?(msg: string, ...args: unknown[]): void;
 }
 
-const defaultLogger: IEnforcementLogger = {
+const defaultConsoleLogger: IEnforcementLogger = {
   info: (msg, ...args) => console.log(`[QuotaEnforcementMonitor] ${msg}`, ...args),
   warn: (msg, ...args) => console.warn(`[QuotaEnforcementMonitor] ${msg}`, ...args),
   error: (msg, ...args) => console.error(`[QuotaEnforcementMonitor] ${msg}`, ...args),
@@ -21,11 +28,15 @@ export interface QuotaEnforcementMonitorOptions {
   intervalMs?: number;
   enabled?: boolean;
   logger?: IEnforcementLogger;
+  structuredLogger?: ILogger;
+  metrics?: MetricsService;
+  circuitBreaker?: CircuitBreaker;
+  retryPolicy?: RetryPolicy;
 }
 
 export interface IQuotaEnforcementMonitor {
   start(options?: { skipInitialSync?: boolean }): Promise<void> | void;
-  stop(): Promise<void> | void;
+  stop(options?: { waitForCycle?: boolean; timeoutMs?: number }): Promise<void> | void;
   sync(): Promise<void>;
   isRunning(): boolean;
 }
@@ -48,6 +59,7 @@ export interface EnforcementCycleResult {
   }>;
   success: boolean;
   error?: string | undefined;
+  reconciliationId?: string | undefined;
 }
 
 export interface EnforcementMonitorStatus {
@@ -60,6 +72,16 @@ export interface EnforcementMonitorStatus {
   lastError: string | null;
   totalRuns: number;
   consecutiveErrors: number;
+  syncInProgress?: boolean;
+  lastStartedAt?: string | null;
+  lastCompletedAt?: string | null;
+  lastSuccessfulAt?: string | null;
+  lastFailureAt?: string | null;
+  lastDurationMs?: number | null;
+  devicesEvaluated?: number;
+  devicesBlocked?: number;
+  devicesUnblocked?: number;
+  reconciliationId?: string | null;
 }
 
 /**
@@ -99,11 +121,14 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
   private readonly intervalMs: number;
   private readonly enabled: boolean;
   private readonly logger: IEnforcementLogger;
+  private readonly structuredLogger: ILogger;
+  private readonly metrics: MetricsService;
+  private readonly circuitBreaker: CircuitBreaker;
+  private readonly retryPolicy: RetryPolicy;
 
   private isInitialRun = true;
 
   // In-memory observation cache to record state transitions: Map<MAC, "blocked" | "unblocked">
-  // NOTE: This cache is strictly non-authoritative. Enforcement decisions always query QuotaService and nftables.
   private enforcementState = new Map<string, 'blocked' | 'unblocked'>();
 
   // Telemetry state
@@ -113,6 +138,15 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
   private lastError: string | null = null;
   private totalRuns = 0;
   private consecutiveErrors = 0;
+
+  private lastStartedAt: string | null = null;
+  private lastCompletedAt: string | null = null;
+  private lastSuccessfulAt: string | null = null;
+  private lastFailureAt: string | null = null;
+  private devicesEvaluated = 0;
+  private devicesBlocked = 0;
+  private devicesUnblocked = 0;
+  private currentReconciliationId: string | null = null;
 
   constructor(
     private readonly quotaService: QuotaService = defaultQuotaService,
@@ -124,7 +158,11 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
       options.intervalMs ?? env.QUOTA_ENFORCEMENT_INTERVAL_MS ?? 5000
     );
     this.enabled = options.enabled ?? env.QUOTA_ENFORCEMENT_ENABLED ?? true;
-    this.logger = options.logger ?? defaultLogger;
+    this.logger = options.logger ?? defaultConsoleLogger;
+    this.structuredLogger = options.structuredLogger ?? defaultStructuredLogger;
+    this.metrics = options.metrics ?? defaultMetricsService;
+    this.circuitBreaker = options.circuitBreaker ?? defaultCircuitBreaker;
+    this.retryPolicy = options.retryPolicy ?? defaultRetryPolicy;
   }
 
   /**
@@ -146,7 +184,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
     this.running = true;
     this.logger.info(`Started Quota Enforcement Monitor (interval: ${this.intervalMs}ms)`);
 
-    // 1. Run first synchronization cycle immediately unless skipped (e.g. startup recovery already ran or explicitly skipped)
+    // 1. Run first synchronization cycle immediately unless skipped
     if (!options?.skipInitialSync) {
       try {
         await this.sync();
@@ -168,10 +206,10 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
   /**
    * Stops periodic quota enforcement.
-   * Cleans up running timer and is safe to call multiple times.
+   * Cleans up running timer and supports graceful waiting for in-flight cycles.
    */
-  public stop(): void {
-    if (!this.running && this.timer === null) {
+  public async stop(options?: { waitForCycle?: boolean; timeoutMs?: number }): Promise<void> {
+    if (!this.running && this.timer === null && !this.isSyncing) {
       return;
     }
 
@@ -182,6 +220,14 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
       this.timer = null;
     }
 
+    if (options?.waitForCycle && this.isSyncing) {
+      const timeoutMs = options.timeoutMs ?? 3000;
+      const startWait = Date.now();
+      while (this.isSyncing && Date.now() - startWait < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
     this.logger.info('Stopped Quota Enforcement Monitor');
   }
 
@@ -190,6 +236,10 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
    */
   public isRunning(): boolean {
     return this.running;
+  }
+
+  public isSyncInProgress(): boolean {
+    return this.isSyncing;
   }
 
   /**
@@ -209,14 +259,6 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
   /**
    * Executes an enforcement cycle and returns full execution telemetry.
-   *
-   * Reconciliation Algorithm:
-   * 1. Fetches desired quota states from QuotaService (source of truth for quotas).
-   * 2. Fetches actual nftables blocked MACs from FirewallService (source of truth for firewall).
-   * 3. Calculates missing blocks (desired - actual) and stale blocks (actual - desired).
-   * 4. Reconstructs in-memory enforcement state and updates router ruleset without redundant commands.
-   * 5. Strictly protects manual administrative blocks from removal.
-   * 6. Isolates device failures so an error on one device never halts reconciliation for others.
    */
   public async runCycle(): Promise<EnforcementCycleResult | null> {
     // Overlapping execution prevention lock
@@ -228,17 +270,75 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
     this.isSyncing = true;
     const startTime = Date.now();
     const timestamp = new Date().toISOString();
+    const reconciliationId = randomUUID();
+    this.currentReconciliationId = reconciliationId;
+    this.lastStartedAt = timestamp;
+
+    const cycleLogger = this.structuredLogger.withCorrelationId(reconciliationId);
+
+    // 0. Circuit Breaker protection: avoid hammering SSH if router is down
+    if (this.circuitBreaker.isOpen()) {
+      this.logger.warn('Circuit breaker is OPEN: OpenWrt router operations paused; skipping cycle');
+      cycleLogger.warn('circuit_breaker_open', {
+        reconciliationId,
+        message: 'OpenWrt router operations paused by circuit breaker',
+      });
+
+      const durationMs = Date.now() - startTime;
+      const isoNow = new Date().toISOString();
+      this.lastCompletedAt = isoNow;
+      this.lastFailureAt = isoNow;
+      this.updateTelemetry(timestamp, durationMs, false, 'Circuit breaker is OPEN: external router calls suppressed');
+      this.metrics.increment('reconciliation_runs');
+      this.metrics.increment('reconciliation_failures');
+
+      this.isSyncing = false;
+      return {
+        timestamp,
+        durationMs,
+        totalEvaluated: 0,
+        blockedCount: 0,
+        unblockedCount: 0,
+        unchangedCount: 0,
+        errorCount: 1,
+        results: [],
+        success: false,
+        error: 'Circuit breaker is OPEN: external router calls suppressed',
+        reconciliationId,
+      };
+    }
+
+    this.metrics.increment('reconciliation_runs');
 
     try {
+      cycleLogger.info('reconciliation_started', { reconciliationId });
+
       // 1. Fetch fresh quotas from QuotaService (incorporating fresh usage from UsageService)
       let quotas: DeviceQuota[] = [];
       try {
-        quotas = await this.quotaService.refreshAllQuotas();
+        quotas = await this.circuitBreaker.execute(() =>
+          this.retryPolicy.execute(() => this.quotaService.refreshAllQuotas())
+        );
       } catch (err: unknown) {
+        const classified = classifyError(err);
+        if (classified.category === 'SSH_FAILURE') {
+          this.metrics.increment('ssh_failures');
+        }
+        this.metrics.increment('reconciliation_failures');
+
         const errMsg = this.sanitizeErrorMessage(err);
         this.logger.error(`Failed to refresh quotas from router: ${errMsg}`);
+        cycleLogger.error('operation_failed', {
+          reconciliationId,
+          event: 'quota_refresh_failed',
+          category: classified.category,
+          error: errMsg,
+        });
 
         const durationMs = Date.now() - startTime;
+        const isoNow = new Date().toISOString();
+        this.lastCompletedAt = isoNow;
+        this.lastFailureAt = isoNow;
         this.updateTelemetry(timestamp, durationMs, false, errMsg);
 
         return {
@@ -252,40 +352,79 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
           results: [],
           success: false,
           error: `Router/Usage refresh failure: ${errMsg}`,
+          reconciliationId,
         };
       }
 
       // 2. Ensure dedicated nftables ruleset is provisioned (handles firewall state loss / reboot)
       if (typeof this.firewallService.ensureRuleset === 'function') {
         try {
-          await this.firewallService.ensureRuleset();
+          this.metrics.increment('firewall_operations');
+          await this.circuitBreaker.execute(() =>
+            this.retryPolicy.execute(() => this.firewallService.ensureRuleset())
+          );
+          this.metrics.increment('recovery_actions');
         } catch (rulesetErr: unknown) {
+          const classified = classifyError(rulesetErr);
+          if (classified.category === 'SSH_FAILURE') {
+            this.metrics.increment('ssh_failures');
+          }
+          this.metrics.increment('firewall_operation_failures');
           const errMsg = this.sanitizeErrorMessage(rulesetErr);
           this.logger.warn(`Failed to verify or initialize firewall ruleset: ${errMsg}`);
+          cycleLogger.warn('firewall_ruleset_warning', {
+            reconciliationId,
+            error: errMsg,
+            category: classified.category,
+          });
         }
       }
 
       // Reconcile manual blocks if router state was lost/rebooted
       if (typeof (this.firewallService as { reconcileManualBlocks?: () => Promise<void> }).reconcileManualBlocks === 'function') {
         try {
+          this.metrics.increment('firewall_operations');
           await (this.firewallService as { reconcileManualBlocks: () => Promise<void> }).reconcileManualBlocks();
+          this.metrics.increment('manual_blocks_restored');
         } catch (manualErr: unknown) {
           const errMsg = this.sanitizeErrorMessage(manualErr);
           this.logger.warn(`Failed to reconcile manual firewall blocks: ${errMsg}`);
+          cycleLogger.warn('manual_reconcile_warning', { reconciliationId, error: errMsg });
         }
       }
 
       // 3. Fetch actual blocked MACs from firewall (inspecting table inet quota_enforcement set blocked_macs)
       let actualBlockedList: string[] = [];
       try {
+        this.metrics.increment('firewall_operations');
         actualBlockedList = typeof this.firewallService.getQuotaBlockedDevices === 'function'
-          ? await this.firewallService.getQuotaBlockedDevices()
-          : await this.firewallService.getBlockedDevices();
+          ? await this.circuitBreaker.execute(() =>
+              this.retryPolicy.execute(() => this.firewallService.getQuotaBlockedDevices!())
+            )
+          : await this.circuitBreaker.execute(() =>
+              this.retryPolicy.execute(() => this.firewallService.getBlockedDevices())
+            );
       } catch (err: unknown) {
+        const classified = classifyError(err);
+        if (classified.category === 'SSH_FAILURE') {
+          this.metrics.increment('ssh_failures');
+        }
+        this.metrics.increment('firewall_operation_failures');
+        this.metrics.increment('reconciliation_failures');
+
         const errMsg = this.sanitizeErrorMessage(err);
         this.logger.error(`Failed to retrieve actual blocked devices from firewall: ${errMsg}`);
+        cycleLogger.error('operation_failed', {
+          reconciliationId,
+          event: 'firewall_fetch_failed',
+          category: classified.category,
+          error: errMsg,
+        });
 
         const durationMs = Date.now() - startTime;
+        const isoNow = new Date().toISOString();
+        this.lastCompletedAt = isoNow;
+        this.lastFailureAt = isoNow;
         this.updateTelemetry(timestamp, durationMs, false, errMsg);
 
         return {
@@ -299,12 +438,13 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
           results: [],
           success: false,
           error: `Firewall fetch failure: ${errMsg}`,
+          reconciliationId,
         };
       }
 
       const actualBlockedSet = new Set(actualBlockedList.map((m) => m.toUpperCase()));
 
-      // 3. Determine desired blocked state from QuotaService
+      // 4. Determine desired blocked state from QuotaService
       const desiredBlockedSet = new Set<string>();
       const quotaMap = new Map<string, DeviceQuota>();
 
@@ -315,6 +455,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
           desiredBlockedSet.add(normMac);
         }
       }
+
+      this.metrics.increment('quota_devices_evaluated', quotas.length);
+      this.metrics.increment('quota_devices_exhausted', desiredBlockedSet.size);
 
       let reconciliationStartedLogged = false;
       const logReconciliationStarted = () => {
@@ -337,7 +480,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
       const results: EnforcementCycleResult['results'] = [];
       const evaluatedMacs = new Set<string>();
 
-      // 4. Evaluate each configured device quota
+      // 5. Evaluate each configured device quota
       for (const quota of quotas) {
         const mac = quota.mac.toUpperCase();
         evaluatedMacs.add(mac);
@@ -348,11 +491,18 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
           if (isDesiredBlocked) {
             // DESIRED: BLOCKED (quota is exhausted)
+            cycleLogger.info('quota_exhausted', {
+              reconciliationId,
+              mac,
+              usedBytes: quota.usedBytes,
+              quotaBytes: quota.quotaBytes,
+            });
+
             const isQuotaRecorded = await this.firewallService.isBlocked(mac, 'quota');
 
             if (isActuallyBlocked) {
-              // Already blocked in nftables: ensure block ownership is recorded in repository without redundant commands
               if (!isQuotaRecorded) {
+                this.metrics.increment('firewall_operations');
                 await this.firewallService.blockDevice(mac, 'quota');
               }
               this.enforcementState.set(mac, 'blocked');
@@ -369,9 +519,22 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
               logReconciliationStarted();
               this.logger.info(`Quota exhausted, firewall block required: ${mac}`);
               this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=blocked actual=unblocked action=block`);
+
+              this.metrics.increment('firewall_operations');
               await this.firewallService.blockDevice(mac, 'quota');
               this.enforcementState.set(mac, 'blocked');
+
               this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=blocked actual=unblocked action=block result=success`);
+              cycleLogger.info('device_blocked', {
+                reconciliationId,
+                mac,
+                source: 'quota',
+                usedBytes: quota.usedBytes,
+                quotaBytes: quota.quotaBytes,
+              });
+
+              this.metrics.increment('devices_blocked');
+              this.metrics.increment('recovery_actions');
               blockedCount++;
               results.push({
                 mac,
@@ -388,12 +551,14 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
             if (isQuotaRecorded || (isActuallyBlocked && !isManualBlocked)) {
               if (isManualBlocked) {
-                // Manual admin block protection: remove quota ownership, but manual block remains in nftables
+                // Manual admin block protection: remove quota ownership, manual block remains
                 if (isQuotaRecorded) {
                   logReconciliationStarted();
                   this.logger.info(`Preserving manual block: ${mac}`);
+                  this.metrics.increment('firewall_operations');
                   await this.firewallService.unblockDevice(mac, 'quota');
                   this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=preserve reason="manual_block_protected"`);
+                  cycleLogger.info('manual_block_protected', { reconciliationId, mac });
                 }
                 this.enforcementState.set(mac, 'unblocked');
                 unchangedCount++;
@@ -405,13 +570,20 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
                   reason: 'Active quota; device remains blocked by manual administrator block',
                 });
               } else {
-                // STALE BLOCK: Quota is active; unblock device to restore access
+                // STALE BLOCK: Quota is active; unblock device
                 logReconciliationStarted();
                 this.logger.info(`Stale quota block removed: ${mac}`);
                 this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=unblock`);
+
+                this.metrics.increment('firewall_operations');
                 await this.firewallService.unblockDevice(mac, 'quota');
                 this.enforcementState.set(mac, 'unblocked');
+
                 this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=unblock result=success`);
+                cycleLogger.info('device_unblocked', { reconciliationId, mac, source: 'quota' });
+
+                this.metrics.increment('devices_unblocked');
+                this.metrics.increment('recovery_actions');
                 unblockedCount++;
                 results.push({
                   mac,
@@ -422,7 +594,6 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
                 });
               }
             } else {
-              // Desired = unblocked, Actual = unblocked (or manual admin block preserved)
               this.enforcementState.set(mac, 'unblocked');
               unchangedCount++;
               results.push({
@@ -439,14 +610,28 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         } catch (devErr: unknown) {
           errorCount++;
           logReconciliationStarted();
+          const classified = classifyError(devErr);
+          if (classified.category === 'SSH_FAILURE') {
+            this.metrics.increment('ssh_failures');
+          }
+          this.metrics.increment('firewall_operation_failures');
+
           const errMsg = this.sanitizeErrorMessage(devErr);
           const actionStr = desiredBlockedSet.has(mac) ? 'block' : 'unblock';
           const desiredStr = desiredBlockedSet.has(mac) ? 'blocked' : 'unblocked';
           const actualStr = actualBlockedSet.has(mac) ? 'blocked' : 'unblocked';
+
           this.logger.error(`Device reconciliation failed for ${mac}: ${errMsg}`);
           this.logger.error(
             `[QuotaReconciliation] MAC=${mac} desired=${desiredStr} actual=${actualStr} action=${actionStr} result=error error="${errMsg}"`
           );
+          cycleLogger.error('operation_failed', {
+            reconciliationId,
+            mac,
+            category: classified.category,
+            error: errMsg,
+          });
+
           results.push({
             mac,
             action: 'none',
@@ -458,7 +643,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         }
       }
 
-      // 5. Reconcile stale blocks in nftables for deleted quotas or orphan blocks
+      // 6. Reconcile stale blocks in nftables for deleted quotas or orphan blocks
       for (const blockedMac of actualBlockedSet) {
         if (evaluatedMacs.has(blockedMac)) {
           continue;
@@ -470,19 +655,28 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
           const isQuota = await this.firewallService.isBlocked(blockedMac, 'quota');
           if (isManual) {
             if (isQuota) {
+              this.metrics.increment('firewall_operations');
               await this.firewallService.unblockDevice(blockedMac, 'quota');
             }
-            // Protected manual block without a quota: preserved in nftables
             continue;
           }
 
           // Device has no configured quota, is in nftables, and is NOT manually blocked
+          this.metrics.increment('orphan_blocks_detected');
           logReconciliationStarted();
           this.logger.info(`Stale quota block removed: ${blockedMac}`);
           this.logger.info(`[QuotaReconciliation] MAC=${blockedMac} desired=unblocked actual=blocked action=unblock`);
+
+          this.metrics.increment('firewall_operations');
           await this.firewallService.unblockDevice(blockedMac, 'quota');
           this.enforcementState.delete(blockedMac);
+
           this.logger.info(`[QuotaReconciliation] MAC=${blockedMac} desired=unblocked actual=blocked action=unblock result=success`);
+          cycleLogger.info('orphan_block_removed', { reconciliationId, mac: blockedMac });
+
+          this.metrics.increment('orphan_blocks_removed');
+          this.metrics.increment('devices_unblocked');
+          this.metrics.increment('recovery_actions');
           unblockedCount++;
           results.push({
             mac: blockedMac,
@@ -494,11 +688,24 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         } catch (err: unknown) {
           errorCount++;
           logReconciliationStarted();
+          const classified = classifyError(err);
+          if (classified.category === 'SSH_FAILURE') {
+            this.metrics.increment('ssh_failures');
+          }
+          this.metrics.increment('firewall_operation_failures');
+
           const errMsg = this.sanitizeErrorMessage(err);
           this.logger.error(`Device reconciliation failed for ${blockedMac}: ${errMsg}`);
           this.logger.error(
             `[QuotaReconciliation] MAC=${blockedMac} desired=unblocked actual=blocked action=unblock result=error error="${errMsg}"`
           );
+          cycleLogger.error('operation_failed', {
+            reconciliationId,
+            mac: blockedMac,
+            category: classified.category,
+            error: errMsg,
+          });
+
           results.push({
             mac: blockedMac,
             action: 'none',
@@ -510,7 +717,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         }
       }
 
-      // 6. Clean up any stale quota block repository ownership for MACs without quotas
+      // 7. Clean up any stale quota block repository ownership for MACs without quotas
       try {
         const repoQuotaBlocked = typeof (this.firewallService as { getRepositoryBlockedDevices?: (s?: string) => Promise<string[]> }).getRepositoryBlockedDevices === 'function'
           ? await (this.firewallService as { getRepositoryBlockedDevices: (s?: string) => Promise<string[]> }).getRepositoryBlockedDevices('quota')
@@ -527,7 +734,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         // Safe no-op if source listing is unsupported
       }
 
-      // 7. Clean up in-memory state entries for MACs that no longer exist anywhere
+      // 8. Clean up in-memory state entries for MACs that no longer exist anywhere
       for (const cachedMac of Array.from(this.enforcementState.keys())) {
         if (!quotaMap.has(cachedMac) && !actualBlockedSet.has(cachedMac)) {
           this.enforcementState.delete(cachedMac);
@@ -548,6 +755,31 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
       const durationMs = Date.now() - startTime;
       const cycleSuccess = errorCount === 0;
+      const isoNow = new Date().toISOString();
+      this.lastCompletedAt = isoNow;
+
+      if (cycleSuccess) {
+        this.lastSuccessfulAt = isoNow;
+        this.metrics.increment('reconciliation_successes');
+      } else {
+        this.lastFailureAt = isoNow;
+        this.metrics.increment('reconciliation_failures');
+      }
+
+      this.devicesEvaluated = quotas.length;
+      this.devicesBlocked = blockedCount;
+      this.devicesUnblocked = unblockedCount;
+
+      cycleLogger.info('reconciliation_completed', {
+        reconciliationId,
+        durationMs,
+        blockedCount,
+        unblockedCount,
+        unchangedCount,
+        errorCount,
+        success: cycleSuccess,
+      });
+
       this.updateTelemetry(
         timestamp,
         durationMs,
@@ -566,6 +798,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         results,
         success: cycleSuccess,
         error: errorCount > 0 ? `${errorCount} device enforcement error(s) occurred` : undefined,
+        reconciliationId,
       };
     } finally {
       this.isSyncing = false;
@@ -586,8 +819,18 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
   public getStatus(): EnforcementMonitorStatus {
     return {
       running: this.running,
+      syncInProgress: this.isSyncing,
       intervalMs: this.intervalMs,
       enabled: this.enabled,
+      lastStartedAt: this.lastStartedAt,
+      lastCompletedAt: this.lastCompletedAt,
+      lastSuccessfulAt: this.lastSuccessfulAt,
+      lastFailureAt: this.lastFailureAt,
+      lastDurationMs: this.lastRunDurationMs,
+      devicesEvaluated: this.devicesEvaluated,
+      devicesBlocked: this.devicesBlocked,
+      devicesUnblocked: this.devicesUnblocked,
+      reconciliationId: this.currentReconciliationId,
       lastRunAt: this.lastRunAt,
       lastRunDurationMs: this.lastRunDurationMs,
       lastRunSuccess: this.lastRunSuccess,
