@@ -1,4 +1,5 @@
 import { type ISshClient, sshClient } from '../../infrastructure/openwrt/SshClient.js';
+import { metricsService } from '../../infrastructure/metrics/MetricsService.js';
 import { normalizeMac } from '../devices/DevicesService.js';
 import {
   InvalidMacAddressError,
@@ -46,7 +47,15 @@ export class NftablesClient implements INftablesClient {
    */
   public async executeSafeNft(cmd: string) {
     NftablesSafetyGuard.assertSafeNftCommand(cmd);
-    return this.ssh.executeCommand(cmd);
+    metricsService.increment('openwrt_nftables_operations_total', 1);
+    metricsService.increment('firewall_operations', 1);
+    try {
+      return await this.ssh.executeCommand(cmd);
+    } catch (err) {
+      metricsService.increment('openwrt_nftables_failures_total', 1);
+      metricsService.increment('firewall_operation_failures', 1);
+      throw err;
+    }
   }
 
   /**

@@ -85,7 +85,7 @@ echo "Running: npm run build..."
 npm run build
 assert_success "TypeScript Compilation (npm run build)" $?
 
-echo "Running: npm test (30 suites)..."
+echo "Running: npm test (31 suites)..."
 npm test
 assert_success "Full Unit & Integration Test Suites (npm test)" $?
 
@@ -148,6 +148,36 @@ BLOCKED_RESP=$(curl -s "$CONTROLLER_URL/api/firewall/blocked")
 echo "$BLOCKED_RESP"
 echo "$BLOCKED_RESP" | grep -q '"success":true'
 assert_success "GET /api/firewall/blocked returns success" $?
+
+# Phase 18 Observability Endpoints Verification
+echo "Testing GET /health/live..."
+LIVE_RESP=$(curl -s "$CONTROLLER_URL/health/live")
+echo "$LIVE_RESP"
+echo "$LIVE_RESP" | grep -q '"status":"alive"'
+assert_success "GET /health/live reports alive" $?
+
+echo "Testing GET /health/ready..."
+READY_RESP=$(curl -s "$CONTROLLER_URL/health/ready")
+echo "$READY_RESP"
+echo "$READY_RESP" | grep -q '"ready":true'
+assert_success "GET /health/ready reports ready" $?
+
+echo "Testing GET /metrics (Prometheus)..."
+METRICS_PROM=$(curl -s "$CONTROLLER_URL/metrics")
+echo "$METRICS_PROM" | head -n 10
+echo "$METRICS_PROM" | grep -q "http_requests_total"
+assert_success "GET /metrics returns Prometheus format" $?
+
+echo "Testing GET /api/metrics (JSON)..."
+METRICS_JSON=$(curl -s "$CONTROLLER_URL/api/metrics")
+echo "$METRICS_JSON" | grep -q '"success":true'
+assert_success "GET /api/metrics returns categorized JSON metrics" $?
+
+echo "Testing GET /api/operations/status..."
+OPS_RESP=$(curl -s "$CONTROLLER_URL/api/operations/status")
+echo "$OPS_RESP"
+echo "$OPS_RESP" | grep -q '"controllerVersion"'
+assert_success "GET /api/operations/status returns operational telemetry" $?
 
 # ------------------------------------------------------------------------------
 # Phase 4: Controller Restart Recovery

@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, isAxiosError } from 'axios';
 import { env } from '../../config/env.js';
+import { metricsService } from '../metrics/MetricsService.js';
 
 export interface UbusClientConfig {
   host?: string | undefined;
@@ -238,11 +239,14 @@ export class UbusClient {
       params: [session, object, method, params],
     };
 
+    metricsService.increment('openwrt_ubus_calls_total', 1);
+
     let responseData: UbusRpcResponse<T>;
     try {
       const response = await this.httpClient.post<UbusRpcResponse<T>>('', requestPayload);
       responseData = response.data;
     } catch (err) {
+      metricsService.increment('openwrt_ubus_failures_total', 1);
       if (isAxiosError(err)) {
         throw new OpenWrtConnectionError(
           `Ubus request to ${object}.${method} failed at ${this.config.host}:${this.config.port}: ${err.message}`,
@@ -256,6 +260,7 @@ export class UbusClient {
     }
 
     if (responseData.error) {
+      metricsService.increment('openwrt_ubus_failures_total', 1);
       throw new UbusRequestError(
         `Ubus RPC error (${responseData.error.code}) on ${object}.${method}: ${responseData.error.message}`,
         undefined,
@@ -264,6 +269,7 @@ export class UbusClient {
     }
 
     if (!responseData.result) {
+      metricsService.increment('openwrt_ubus_failures_total', 1);
       throw new UbusRequestError(`No result returned from ubus call to ${object}.${method}`);
     }
 
@@ -278,6 +284,7 @@ export class UbusClient {
     }
 
     if (ubusReturnCode !== 0) {
+      metricsService.increment('openwrt_ubus_failures_total', 1);
       throw new UbusRequestError(
         `Ubus call ${object}.${method} returned status code ${ubusReturnCode}`,
         ubusReturnCode

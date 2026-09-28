@@ -46,7 +46,7 @@ const startServer = async (): Promise<void> => {
 
   // 4. Configure robust graceful shutdown handler
   const shutdownHandler = new GracefulShutdownHandler(app, quotaEnforcementMonitor, {
-    timeoutMs: 5000,
+    timeoutMs: env.SHUTDOWN_TIMEOUT_MS,
     logger: {
       info: (msg) => app.log.info(msg),
       error: (msg, err) => app.log.error(err, msg),

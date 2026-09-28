@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { IQuotaEnforcementMonitor } from '../../modules/quota/QuotaEnforcementMonitor.js';
+import { metricsService } from '../metrics/MetricsService.js';
+import { env } from '../../config/env.js';
 
 export interface ShutdownOptions {
   timeoutMs?: number;
@@ -20,7 +22,7 @@ export class GracefulShutdownHandler {
   ) {
     this.app = app;
     this.monitor = monitor;
-    this.timeoutMs = options.timeoutMs ?? 5000;
+    this.timeoutMs = options.timeoutMs ?? env.SHUTDOWN_TIMEOUT_MS ?? 5000;
     this.logger = options.logger ?? {
       info: (msg) => console.log(`[Shutdown] ${msg}`),
       error: (msg, err) => console.error(`[Shutdown] ${msg}`, err),
@@ -40,8 +42,9 @@ export class GracefulShutdownHandler {
       return false; // Idempotent: already in progress
     }
     this.isShuttingDown = true;
+    metricsService.increment('graceful_shutdown_count', 1);
 
-    this.logger.info(`Received ${signal ?? 'shutdown'}, terminating gracefully...`);
+    this.logger.info(`Received ${signal ?? 'shutdown'}, terminating gracefully (timeout: ${this.timeoutMs}ms)...`);
 
     const shutdownTimer = setTimeout(() => {
       this.logger.error(`Graceful shutdown timed out after ${this.timeoutMs}ms, forcing exit`);

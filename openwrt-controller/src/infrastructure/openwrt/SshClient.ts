@@ -5,6 +5,8 @@ import {
   OpenWrtConnectionError,
   OpenWrtNotConfiguredError,
 } from './UbusClient.js';
+import { metricsService } from '../metrics/MetricsService.js';
+import { logger } from '../logging/Logger.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,6 +22,7 @@ export interface SshExecutionResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  durationMs?: number;
 }
 
 export interface ISshClient {
@@ -32,7 +35,7 @@ export interface ISshClient {
  * (e.g. nlbwmon queries, nftables inspection, system diagnostics).
  *
  * Utilizes Node.js child_process.execFile with SSH batch mode, strict timeouts,
- * command validation, and credential sanitization to guarantee safe execution.
+ * command validation, metrics tracking, and credential sanitization to guarantee safe execution.
  */
 export class SshClient implements ISshClient {
   private readonly config: {
@@ -106,18 +109,35 @@ export class SshClient implements ISshClient {
 
     args.push(`${this.config.username}@${this.config.host}`, command);
 
+    // Extract coarse operation name for metrics/logging (e.g. nlbwmon, nft)
+    const opMatch = command.trim().match(/^[a-zA-Z0-9_-]+/);
+    const operation = opMatch ? opMatch[0] : 'ssh_cmd';
+
+    metricsService.increment('openwrt_ssh_attempts_total', 1);
+    const start = process.hrtime.bigint();
+
     try {
       const { stdout, stderr } = await execFileAsync('ssh', args, {
         timeout: this.config.timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
       });
 
+      const durationMs = Math.round((Number(process.hrtime.bigint() - start) / 1_000_000) * 100) / 100;
+      metricsService.increment('openwrt_ssh_successes_total', 1);
+      metricsService.observe('openwrt_ssh_duration_ms', durationMs);
+
       return {
         stdout: stdout.toString(),
         stderr: stderr.toString(),
         exitCode: 0,
+        durationMs,
       };
     } catch (err: unknown) {
+      const durationMs = Math.round((Number(process.hrtime.bigint() - start) / 1_000_000) * 100) / 100;
+      metricsService.increment('openwrt_ssh_failures_total', 1);
+      metricsService.increment('ssh_failures', 1);
+      metricsService.observe('openwrt_ssh_duration_ms', durationMs);
+
       const errorObj = err as {
         code?: number | string;
         killed?: boolean;
@@ -135,9 +155,7 @@ export class SshClient implements ISshClient {
 
       let stderrMsg = errorObj.stderr ? errorObj.stderr.toString().trim() : '';
       // Sanitize stderr to remove passwords or private keys
-      stderrMsg = stderrMsg
-        .replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, 'Bearer [REDACTED]')
-        .replace(/(password|token|secret|key)=[^&\s]+/gi, '$1=[REDACTED]');
+      stderrMsg = logger.sanitizeString(stderrMsg);
 
       const detailedMsg = stderrMsg.length > 0 ? `: ${stderrMsg}` : '';
 

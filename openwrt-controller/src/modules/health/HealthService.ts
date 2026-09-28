@@ -1,4 +1,12 @@
-import type { HealthReport, SystemHealthStatus, SubsystemHealth, ReconciliationHealth } from './types.js';
+import type {
+  HealthReport,
+  SystemHealthStatus,
+  SubsystemHealth,
+  ReconciliationHealth,
+  LivenessReport,
+  ReadinessReport,
+  ReadinessStatus,
+} from './types.js';
 import { CircuitBreaker, circuitBreaker as defaultCircuitBreaker } from '../../infrastructure/resilience/CircuitBreaker.js';
 import { type IQuotaRepository } from '../quota/storage/IQuotaRepository.js';
 import { quotaRepository as defaultQuotaRepository } from '../quota/storage/FileQuotaRepository.js';
@@ -22,6 +30,10 @@ export class HealthService {
     this.monitor = deps.monitor ?? (defaultMonitor as unknown as (IQuotaEnforcementMonitor & { getStatus(): EnforcementMonitorStatus }));
   }
 
+  /**
+   * Comprehensive health check evaluating all controller subsystems.
+   * Backward compatible with Phase 16 & 17 tests.
+   */
   public async getHealth(): Promise<HealthReport> {
     const timestamp = new Date().toISOString();
     const uptimeSeconds = Math.floor(process.uptime());
@@ -73,6 +85,133 @@ export class HealthService {
       quota: quotaHealth,
       reconciliation: reconciliationHealth,
       monitor: monitorState,
+    };
+  }
+
+  /**
+   * Liveness probe: evaluates if the Node.js process is active, responsive,
+   * and the event loop is functioning.
+   */
+  public getLiveness(): LivenessReport {
+    const mem = process.memoryUsage();
+    return {
+      status: 'alive',
+      service: 'openwrt-controller',
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: Math.floor(process.uptime()),
+      pid: process.pid,
+      memoryUsage: {
+        rssBytes: mem.rss,
+        heapUsedBytes: mem.heapUsed,
+        heapTotalBytes: mem.heapTotal,
+      },
+    };
+  }
+
+  /**
+   * Readiness probe: evaluates if the controller is ready to process traffic
+   * and perform management operations.
+   */
+  public async getReadiness(): Promise<ReadinessReport> {
+    const timestamp = new Date().toISOString();
+    const uptimeSeconds = Math.floor(process.uptime());
+    const degradedReasons: string[] = [];
+
+    // 1. Quota Storage (Critical dependency)
+    let quotaReady = true;
+    let quotaDetails: string | undefined;
+    let quotaSubStatus: SystemHealthStatus = 'healthy';
+    try {
+      await this.quotaRepository.getAll();
+    } catch (err: unknown) {
+      quotaReady = false;
+      quotaSubStatus = 'unhealthy';
+      quotaDetails = err instanceof Error ? err.message : 'Quota storage inaccessible';
+      degradedReasons.push(`Critical: Quota storage inaccessible (${quotaDetails})`);
+    }
+
+    // 2. OpenWrt Router Connectivity via Circuit Breaker
+    const cbState = this.circuitBreaker.getState();
+    const cbDiags = this.circuitBreaker.getDiagnostics();
+    let routerReady = true;
+    let routerDetails: string | undefined;
+
+    if (cbState === 'OPEN') {
+      if (cbDiags.consecutiveFailures >= 10) {
+        routerReady = false;
+        routerDetails = `Router connectivity failing repeatedly (${cbDiags.consecutiveFailures} failures)`;
+        degradedReasons.push(routerDetails);
+      } else {
+        routerDetails = `Router circuit breaker is OPEN (${cbDiags.consecutiveFailures} failures, cooldown active)`;
+        degradedReasons.push(routerDetails);
+      }
+    } else if (cbState === 'HALF_OPEN') {
+      routerDetails = 'Circuit breaker probing router in HALF_OPEN recovery state';
+      degradedReasons.push(routerDetails);
+    }
+
+    // 3. Firewall Subsystem
+    const firewallReady = routerReady;
+    const firewallDetails = routerDetails;
+
+    // 4. Quota Enforcement Monitor
+    let monitorReady = true;
+    let monitorStateStr = 'disabled';
+    let monitorDetails: string | undefined;
+
+    if (this.monitor) {
+      const isRunning = typeof (this.monitor as { isRunning?: () => boolean }).isRunning === 'function' &&
+        (this.monitor as { isRunning: () => boolean }).isRunning();
+      monitorStateStr = isRunning ? 'running' : 'stopped';
+
+      const monStatus = typeof this.monitor.getStatus === 'function' ? this.monitor.getStatus() : null;
+      if (monStatus && (monStatus.consecutiveErrors ?? 0) >= 5) {
+        monitorDetails = `Monitor failing consecutive cycles (${monStatus.consecutiveErrors} errors)`;
+        degradedReasons.push(monitorDetails);
+      }
+    }
+
+    // Determine overall readiness
+    let status: ReadinessStatus = 'ready';
+    let isReady = true;
+
+    if (!quotaReady || (!routerReady && cbDiags.consecutiveFailures >= 10)) {
+      status = 'not_ready';
+      isReady = false;
+    } else if (degradedReasons.length > 0) {
+      status = 'degraded';
+      isReady = true;
+    }
+
+    return {
+      status,
+      service: 'openwrt-controller',
+      timestamp,
+      uptimeSeconds,
+      ready: isReady,
+      subsystems: {
+        quotaStorage: {
+          ready: quotaReady,
+          status: quotaSubStatus,
+          details: quotaDetails,
+        },
+        routerConnectivity: {
+          ready: routerReady,
+          circuitBreaker: cbState,
+          consecutiveFailures: cbDiags.consecutiveFailures,
+          details: routerDetails,
+        },
+        firewall: {
+          ready: firewallReady,
+          details: firewallDetails,
+        },
+        monitor: {
+          ready: monitorReady,
+          state: monitorStateStr,
+          details: monitorDetails,
+        },
+      },
+      ...(degradedReasons.length > 0 ? { degradedReasons } : {}),
     };
   }
 

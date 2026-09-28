@@ -309,6 +309,8 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
     }
 
     this.metrics.increment('reconciliation_runs');
+    this.metrics.increment('quota_enforcement_cycles_total');
+    this.metrics.increment('quota_reconciliation_cycles_total');
 
     try {
       cycleLogger.info('reconciliation_started', { reconciliationId });
@@ -462,6 +464,10 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
       this.metrics.increment('quota_devices_evaluated', quotas.length);
       this.metrics.increment('quota_devices_exhausted', desiredBlockedSet.size);
+      this.metrics.set('quota_records_total', quotas.length);
+      this.metrics.set('quota_active_total', Math.max(0, quotas.length - desiredBlockedSet.size));
+      this.metrics.set('quota_exhausted_total', desiredBlockedSet.size);
+      this.metrics.set('quota_blocked_devices_total', actualBlockedSet.size);
 
       let reconciliationStartedLogged = false;
       const logReconciliationStarted = () => {
@@ -774,12 +780,25 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
       const isoNow = new Date().toISOString();
       this.lastCompletedAt = isoNow;
 
+      this.metrics.observe('quota_enforcement_duration_ms', durationMs);
+
       if (cycleSuccess) {
         this.lastSuccessfulAt = isoNow;
         this.metrics.increment('reconciliation_successes');
+        this.metrics.increment('quota_enforcement_successes_total');
+        this.metrics.increment('quota_reconciliation_successes_total');
       } else {
         this.lastFailureAt = isoNow;
         this.metrics.increment('reconciliation_failures');
+        this.metrics.increment('quota_enforcement_failures_total');
+        this.metrics.increment('quota_reconciliation_failures_total');
+      }
+
+      if (blockedCount > 0) {
+        this.metrics.increment('devices_blocked_total', blockedCount);
+      }
+      if (unblockedCount > 0) {
+        this.metrics.increment('devices_unblocked_total', unblockedCount);
       }
 
       this.devicesEvaluated = quotas.length;

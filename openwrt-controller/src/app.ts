@@ -42,6 +42,9 @@ import {
 import { ForbiddenFirewallOperationError } from './modules/firewall/NftablesSafetyGuard.js';
 import { quotaEnforcementRoutes } from './modules/quota-enforcement/quota-enforcement.routes.js';
 import { quotaEnforcementMonitor } from './modules/quota/QuotaEnforcementMonitor.js';
+import { createHttpMetricsHooks } from './infrastructure/metrics/httpMetricsHook.js';
+import { metricsRoutes } from './infrastructure/metrics/metrics.routes.js';
+import { operationsRoutes } from './modules/operations/operations.routes.js';
 
 export interface StandardErrorObject {
   code: string;
@@ -118,6 +121,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       },
     },
   });
+
+  // 0. HTTP Metrics Tracking Hook (Prometheus & Operations Observability)
+  const httpMetricsHooks = createHttpMetricsHooks();
+  app.addHook('onRequest', httpMetricsHooks.onRequest);
+  app.addHook('onResponse', httpMetricsHooks.onResponse);
 
   // Always echo X-Request-Id in response headers
   app.addHook('onSend', async (request, reply, payload) => {
@@ -316,6 +324,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
   // Register modular routes
   await app.register(healthRoutes);
+  await app.register(metricsRoutes);
+  await app.register(operationsRoutes);
   await app.register(devicesRoutes);
   await app.register(usageRoutes);
   await app.register(quotaRoutes);

@@ -78,6 +78,29 @@ export class Logger implements ILogger {
     return this.child({ requestId });
   }
 
+  public withModule(moduleName: string): ILogger {
+    return this.child({ module: moduleName });
+  }
+
+  /**
+   * Times an asynchronous or multi-step operation and logs structured completion event.
+   */
+  public startTimer(operation: string, initialContext: LogContext = {}): { end: (extraContext?: LogContext) => void } {
+    const start = process.hrtime.bigint();
+    return {
+      end: (extraContext: LogContext = {}) => {
+        const diffNs = process.hrtime.bigint() - start;
+        const durationMs = Math.round((Number(diffNs) / 1_000_000) * 100) / 100;
+        this.info(`${operation}_completed`, {
+          operation,
+          durationMs,
+          ...initialContext,
+          ...extraContext,
+        });
+      },
+    };
+  }
+
   private write(level: LogLevel, eventOrMsg: string, args: unknown[]): void {
     if (LOG_LEVEL_PRIORITY[level] < LOG_LEVEL_PRIORITY[this.minLevel]) {
       return;

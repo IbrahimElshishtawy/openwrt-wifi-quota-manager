@@ -10,7 +10,18 @@ export interface AuthOptions {
 }
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const DEFAULT_EXEMPT_ROUTES = new Set(['/health', '/api/health']);
+const DEFAULT_EXEMPT_ROUTES = new Set([
+  '/health',
+  '/api/health',
+  '/health/live',
+  '/api/health/live',
+  '/health/ready',
+  '/api/health/ready',
+  '/metrics',
+  '/api/metrics',
+  '/operations/status',
+  '/api/operations/status',
+]);
 
 /**
  * Constant-time comparison between provided and expected tokens to mitigate timing attacks.

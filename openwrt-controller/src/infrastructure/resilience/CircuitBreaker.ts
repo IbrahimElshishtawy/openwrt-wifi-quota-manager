@@ -3,6 +3,8 @@ import {
   type CircuitBreakerOptions,
   CircuitBreakerOpenError,
 } from './resilience.types.js';
+import { metricsService } from '../metrics/MetricsService.js';
+import { logger } from '../logging/Logger.js';
 
 export { CircuitBreakerOpenError };
 
@@ -13,6 +15,7 @@ export class CircuitBreaker {
   private lastStateChangeTime: number = Date.now();
   private lastFailureTime: number | null = null;
   private lastSuccessTime: number | null = null;
+  private lastErrorMessage: string | null = null;
 
   private readonly failureThreshold: number;
   private readonly cooldownPeriodMs: number;
@@ -24,6 +27,9 @@ export class CircuitBreaker {
     this.cooldownPeriodMs = options.cooldownPeriodMs ?? 10000;
     this.successThreshold = options.successThreshold ?? 1;
     this.onStateChange = options.onStateChange;
+
+    // Initialize state gauge (0 = CLOSED)
+    metricsService.set('resilience_circuit_breaker_state', 0);
   }
 
   public getState(): CircuitState {
@@ -55,7 +61,7 @@ export class CircuitBreaker {
       this.recordSuccess();
       return result;
     } catch (err: unknown) {
-      this.recordFailure();
+      this.recordFailure(err);
       throw err;
     }
   }
@@ -73,9 +79,14 @@ export class CircuitBreaker {
     }
   }
 
-  public recordFailure(): void {
+  public recordFailure(err?: unknown): void {
     this.lastFailureTime = Date.now();
     this.consecutiveFailures++;
+    if (err instanceof Error) {
+      this.lastErrorMessage = logger.sanitizeString(err.message);
+    } else if (typeof err === 'string') {
+      this.lastErrorMessage = logger.sanitizeString(err);
+    }
 
     if (this.state === 'HALF_OPEN') {
       // In HALF_OPEN, any failure immediately re-trips back to OPEN
@@ -90,6 +101,7 @@ export class CircuitBreaker {
   public reset(): void {
     this.consecutiveFailures = 0;
     this.consecutiveSuccesses = 0;
+    this.lastErrorMessage = null;
     this.transitionTo('CLOSED');
   }
 
@@ -102,8 +114,11 @@ export class CircuitBreaker {
       state: this.getState(),
       consecutiveFailures: this.consecutiveFailures,
       consecutiveSuccesses: this.consecutiveSuccesses,
+      failureThreshold: this.failureThreshold,
+      cooldownPeriodMs: this.cooldownPeriodMs,
       lastFailureTime: this.lastFailureTime ? new Date(this.lastFailureTime).toISOString() : null,
       lastSuccessTime: this.lastSuccessTime ? new Date(this.lastSuccessTime).toISOString() : null,
+      lastErrorMessage: this.lastErrorMessage,
     };
   }
 
@@ -116,10 +131,44 @@ export class CircuitBreaker {
     if (newState === 'CLOSED') {
       this.consecutiveFailures = 0;
       this.consecutiveSuccesses = 0;
+      metricsService.set('resilience_circuit_breaker_state', 0);
+      metricsService.increment('resilience_circuit_breaker_closes_total', 1);
+
+      logger.info('circuit_breaker_closed', {
+        module: 'resilience',
+        operation: 'circuit_breaker',
+        fromState: oldState,
+        toState: newState,
+        probeResult: 'success',
+      });
     } else if (newState === 'OPEN') {
       this.consecutiveSuccesses = 0;
+      metricsService.set('resilience_circuit_breaker_state', 2);
+      metricsService.increment('resilience_circuit_breaker_opens_total', 1);
+
+      logger.warn('circuit_breaker_opened', {
+        module: 'resilience',
+        operation: 'circuit_breaker',
+        fromState: oldState,
+        toState: newState,
+        failureCount: this.consecutiveFailures,
+        lastFailureTime: this.lastFailureTime ? new Date(this.lastFailureTime).toISOString() : null,
+        resetTimeoutMs: this.cooldownPeriodMs,
+        lastError: this.lastErrorMessage ?? undefined,
+      });
     } else if (newState === 'HALF_OPEN') {
       this.consecutiveSuccesses = 0;
+      metricsService.set('resilience_circuit_breaker_state', 1);
+      metricsService.increment('resilience_circuit_breaker_half_open_probes_total', 1);
+
+      logger.info('circuit_breaker_half_open', {
+        module: 'resilience',
+        operation: 'circuit_breaker',
+        fromState: oldState,
+        toState: newState,
+        probe: 'starting',
+        cooldownElapsedMs: this.cooldownPeriodMs,
+      });
     }
 
     if (this.onStateChange) {

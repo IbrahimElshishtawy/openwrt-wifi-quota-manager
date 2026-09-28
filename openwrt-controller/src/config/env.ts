@@ -66,6 +66,9 @@ export const envSchema = z.object({
     .transform((val) => val === 'true' || val === '1'),
   QUOTA_ENFORCEMENT_INTERVAL_MS: z.coerce.number().int().min(1000).default(5000),
   FIREWALL_STORAGE_PATH: z.string().default('data/firewall-blocks.json'),
+
+  // Graceful shutdown configuration
+  SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(500).default(5000),
 });
 
 export type Env = z.infer<typeof envSchema>;

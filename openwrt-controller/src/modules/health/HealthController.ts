@@ -12,6 +12,23 @@ export class HealthController {
     const statusCode = report.status === 'unhealthy' ? 503 : 200;
     return reply.status(statusCode).send(report);
   };
+
+  public getLiveness = async (
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<void> => {
+    const report = this.service.getLiveness();
+    return reply.status(200).send(report);
+  };
+
+  public getReadiness = async (
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<void> => {
+    const report = await this.service.getReadiness();
+    const statusCode = report.status === 'not_ready' ? 503 : 200;
+    return reply.status(statusCode).send(report);
+  };
 }
 
 export const healthController = new HealthController();
