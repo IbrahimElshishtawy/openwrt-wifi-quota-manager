@@ -10,10 +10,17 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA_DIR="${DATA_DIR:-$ROOT_DIR/data}"
 BACKUP_BASE_DIR="${BACKUP_DIR:-$ROOT_DIR/backups}"
 
-TIMESTAMP="$(date -u +"%Y%m%d_%H%M%S")"
+mkdir -p "$BACKUP_BASE_DIR"
+
+TIMESTAMP="$(date -u +"%Y%m%d_%H%M%S")_$$"
 TARGET_BACKUP_DIR="$BACKUP_BASE_DIR/backup_$TIMESTAMP"
 
-mkdir -p "$TARGET_BACKUP_DIR"
+# Stage in a temporary directory to ensure atomic backup creation
+STAGE_DIR="$(mktemp -d "$BACKUP_BASE_DIR/tmp_backup_XXXXXX")"
+cleanup() {
+    rm -rf "$STAGE_DIR"
+}
+trap cleanup EXIT
 
 echo "=== OpenWrt Controller State Backup ==="
 echo "Source Data Directory: $DATA_DIR"
@@ -22,7 +29,9 @@ echo "Target Backup Location: $TARGET_BACKUP_DIR"
 # Check if data directory exists
 if [ ! -d "$DATA_DIR" ]; then
     echo "⚠️ Warning: Data directory $DATA_DIR does not exist. Creating empty target backup."
-    echo "{}" > "$TARGET_BACKUP_DIR/metadata.json"
+    echo "{}" > "$STAGE_DIR/metadata.json"
+    mv "$STAGE_DIR" "$TARGET_BACKUP_DIR"
+    ln -sfn "$TARGET_BACKUP_DIR" "$BACKUP_BASE_DIR/latest"
     echo "✅ Empty state recorded at $TARGET_BACKUP_DIR"
     echo "$TARGET_BACKUP_DIR"
     exit 0
@@ -35,10 +44,9 @@ if [ -f "$DATA_DIR/quotas.json" ]; then
     # Validate JSON syntax before copying
     if ! node -e "JSON.parse(require('fs').readFileSync(process.argv[1]))" "$DATA_DIR/quotas.json" 2>/dev/null; then
         echo "❌ Error: $DATA_DIR/quotas.json is corrupt / invalid JSON! Aborting backup." >&2
-        rm -rf "$TARGET_BACKUP_DIR"
         exit 1
     fi
-    cp "$DATA_DIR/quotas.json" "$TARGET_BACKUP_DIR/quotas.json"
+    cp "$DATA_DIR/quotas.json" "$STAGE_DIR/quotas.json"
     COPIED_FILES=$((COPIED_FILES + 1))
 fi
 
@@ -47,10 +55,9 @@ if [ -f "$DATA_DIR/firewall-blocks.json" ]; then
     # Validate JSON syntax before copying
     if ! node -e "JSON.parse(require('fs').readFileSync(process.argv[1]))" "$DATA_DIR/firewall-blocks.json" 2>/dev/null; then
         echo "❌ Error: $DATA_DIR/firewall-blocks.json is corrupt / invalid JSON! Aborting backup." >&2
-        rm -rf "$TARGET_BACKUP_DIR"
         exit 1
     fi
-    cp "$DATA_DIR/firewall-blocks.json" "$TARGET_BACKUP_DIR/firewall-blocks.json"
+    cp "$DATA_DIR/firewall-blocks.json" "$STAGE_DIR/firewall-blocks.json"
     COPIED_FILES=$((COPIED_FILES + 1))
 fi
 
@@ -74,7 +81,10 @@ for (const file of ["quotas.json", "firewall-blocks.json"]) {
   }
 }
 fs.writeFileSync(path + "/metadata.json", JSON.stringify(manifest, null, 2));
-' "$TARGET_BACKUP_DIR"
+' "$STAGE_DIR"
+
+# Move validated staged backup to final destination
+mv "$STAGE_DIR" "$TARGET_BACKUP_DIR"
 
 # Maintain pointer to latest backup
 ln -sfn "$TARGET_BACKUP_DIR" "$BACKUP_BASE_DIR/latest"

@@ -4,6 +4,10 @@ node_modules/
 # TypeScript build outputs
 dist/
 
+# CLI executable
+!bin/
+!bin/**
+
 # Local Environment & Secrets
 .env
 .env.production

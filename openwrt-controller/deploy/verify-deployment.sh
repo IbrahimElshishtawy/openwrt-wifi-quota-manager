@@ -74,10 +74,10 @@ echo "Timeout: ${TIMEOUT_SEC}s"
 # 1. Network & Port Check
 # ------------------------------------------------------------------------------
 print_section "1. Network Reachability & Port Listening"
-PORT_OPEN=0
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT_SEC" "$CONTROLLER_URL/health/live" 2>/dev/null || echo "000")
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT_SEC" "$CONTROLLER_URL/health/live" 2>/dev/null || true)
+HTTP_CODE="${HTTP_CODE:-000}"
 
-if [ "$HTTP_CODE" != "000" ]; then
+if [ "$HTTP_CODE" != "000" ] && [ "$HTTP_CODE" != "000000" ] && [ "$HTTP_CODE" != "" ]; then
     check_pass "Controller HTTP port is open and responding (HTTP $HTTP_CODE)"
 else
     check_fail "Controller port unreachable" "Could not establish TCP connection to $CONTROLLER_URL within ${TIMEOUT_SEC}s"

@@ -92,8 +92,9 @@ elif [ "$DEPLOY_TARGET" = "docker" ]; then
     docker run -d \
       --name openwrt-controller \
       --restart unless-stopped \
-      -p "$PORT:3000" \
       --env-file <(grep -v '^#' "$ROOT_DIR/.env" 2>/dev/null || true) \
+      -e PORT=3000 \
+      -p "$PORT:3000" \
       -v "$ROOT_DIR/data:/app/data" \
       "openwrt-controller:$APP_VERSION"
 else
