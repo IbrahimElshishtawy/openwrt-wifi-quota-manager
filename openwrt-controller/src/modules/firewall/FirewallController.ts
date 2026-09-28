@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { FirewallService, firewallService } from './FirewallService.js';
-import { InvalidMacAddressError } from './types.js';
+import { InvalidMacAddressError, type BlockSource } from './types.js';
+import { blockDeviceSchema } from './firewall.schemas.js';
 
 interface MacParams {
   mac?: string;
@@ -8,6 +9,7 @@ interface MacParams {
 
 interface MacBody {
   mac?: string;
+  source?: BlockSource;
   reason?: string;
 }
 
@@ -54,12 +56,20 @@ export class FirewallController {
       throw new InvalidMacAddressError('MAC address is required in route URL or JSON body');
     }
 
-    const result = await this.service.blockDevice(rawMac);
+    let source: BlockSource = 'manual';
+    if (request.body && typeof request.body === 'object') {
+      const parsed = blockDeviceSchema.safeParse(request.body);
+      if (parsed.success && parsed.data.source) {
+        source = parsed.data.source as BlockSource;
+      }
+    }
+
+    const result = await this.service.blockDevice(rawMac, source);
     return reply.status(200).send(result);
   };
 
   public unblockDevice = async (
-    request: FastifyRequest<{ Params: MacParams; Body: MacBody; Querystring: MacParams }>,
+    request: FastifyRequest<{ Params: MacParams; Body: MacBody; Querystring: MacParams & { source?: BlockSource } }>,
     reply: FastifyReply
   ): Promise<void> => {
     const rawMac =
@@ -68,7 +78,10 @@ export class FirewallController {
       throw new InvalidMacAddressError('MAC address is required in route URL, query, or JSON body');
     }
 
-    const result = await this.service.unblockDevice(rawMac);
+    const source: BlockSource =
+      request.body?.source ?? (request.query as { source?: BlockSource })?.source ?? 'manual';
+
+    const result = await this.service.unblockDevice(rawMac, source);
     return reply.status(200).send(result);
   };
 }

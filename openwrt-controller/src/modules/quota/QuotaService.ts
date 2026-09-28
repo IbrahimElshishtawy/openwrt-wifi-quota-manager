@@ -56,8 +56,16 @@ export class QuotaService {
    * Captures the current nlbwmon usage as baseline so previous traffic is not charged against the new quota.
    */
   public async createQuota(dto: CreateQuotaDto): Promise<DeviceQuota> {
-    if (!dto.quotaBytes || dto.quotaBytes <= 0 || !Number.isInteger(dto.quotaBytes)) {
-      throw new InvalidDeviceQuotaError('quotaBytes must be a positive integer greater than 0.');
+    if (
+      !dto.quotaBytes ||
+      dto.quotaBytes <= 0 ||
+      !Number.isInteger(dto.quotaBytes) ||
+      !Number.isFinite(dto.quotaBytes) ||
+      dto.quotaBytes > Number.MAX_SAFE_INTEGER
+    ) {
+      throw new InvalidDeviceQuotaError(
+        `quotaBytes must be a positive finite integer between 1 and ${Number.MAX_SAFE_INTEGER}.`
+      );
     }
 
     const normMac = this.normalizeAndValidateMac(dto.mac);
@@ -155,15 +163,29 @@ export class QuotaService {
     }
 
     if (dto.quotaBytes !== undefined) {
-      if (dto.quotaBytes <= 0 || !Number.isInteger(dto.quotaBytes)) {
-        throw new InvalidDeviceQuotaError('quotaBytes must be a positive integer greater than 0.');
+      if (
+        dto.quotaBytes <= 0 ||
+        !Number.isInteger(dto.quotaBytes) ||
+        !Number.isFinite(dto.quotaBytes) ||
+        dto.quotaBytes > Number.MAX_SAFE_INTEGER
+      ) {
+        throw new InvalidDeviceQuotaError(
+          `quotaBytes must be a positive finite integer between 1 and ${Number.MAX_SAFE_INTEGER}.`
+        );
       }
       record.quotaBytes = dto.quotaBytes;
     }
 
     if (dto.usedBytes !== undefined) {
-      if (dto.usedBytes < 0 || !Number.isInteger(dto.usedBytes)) {
-        throw new InvalidDeviceQuotaError('usedBytes must be a non-negative integer.');
+      if (
+        dto.usedBytes < 0 ||
+        !Number.isInteger(dto.usedBytes) ||
+        !Number.isFinite(dto.usedBytes) ||
+        dto.usedBytes > Number.MAX_SAFE_INTEGER
+      ) {
+        throw new InvalidDeviceQuotaError(
+          `usedBytes must be a non-negative finite integer between 0 and ${Number.MAX_SAFE_INTEGER}.`
+        );
       }
       record.accumulatedUsedBytes = dto.usedBytes;
       record.usedBytes = dto.usedBytes;

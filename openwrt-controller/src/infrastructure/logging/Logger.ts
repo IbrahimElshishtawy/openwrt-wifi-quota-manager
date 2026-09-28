@@ -12,8 +12,15 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   error: 40,
 };
 
-const SENSITIVE_KEY_REGEX = /^(password|token|secret|private[_-]?key|auth|authorization|api[_-]?key)$/i;
-const SENSITIVE_VALUE_REGEX = /(password|token|secret|key)=[^&\s]+/gi;
+// Comprehensive regex matching sensitive object keys
+const SENSITIVE_KEY_REGEX =
+  /(password|passwd|token|secret|private[_-]?key|ssh[_-]?key|auth|authorization|api[_-]?key|admin[_-]?token|credentials)/i;
+
+// Regex patterns to redact sensitive credentials from string values
+const SENSITIVE_KV_REGEX = /(password|passwd|token|secret|key|apikey|admintoken)=[^&\s]+/gi;
+const BEARER_TOKEN_REGEX = /Bearer\s+[A-Za-z0-9_\-\.]+/gi;
+const PRIVATE_KEY_REGEX = /-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----/gi;
+const URL_CREDENTIALS_REGEX = /([a-zA-Z0-9+.-]+:\/\/[^:]+:)[^@]+(@.+)/gi;
 
 export interface LoggerOptions {
   minLevel?: LogLevel | undefined;
@@ -65,6 +72,10 @@ export class Logger implements ILogger {
 
   public withCorrelationId(reconciliationId: string): ILogger {
     return this.child({ reconciliationId });
+  }
+
+  public withRequestId(requestId: string): ILogger {
+    return this.child({ requestId });
   }
 
   private write(level: LogLevel, eventOrMsg: string, args: unknown[]): void {
@@ -145,7 +156,7 @@ export class Logger implements ILogger {
     return 'log_message';
   }
 
-  private sanitizeContext(ctx: LogContext): LogContext {
+  public sanitizeContext(ctx: LogContext): LogContext {
     const cleaned: LogContext = {};
     for (const [key, value] of Object.entries(ctx)) {
       if (SENSITIVE_KEY_REGEX.test(key)) {
@@ -154,7 +165,17 @@ export class Logger implements ILogger {
         cleaned[key] = this.sanitizeString(value);
       } else if (value instanceof Error) {
         cleaned[key] = this.sanitizeString(value.message);
-      } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      } else if (Array.isArray(value)) {
+        cleaned[key] = value.map((item) => {
+          if (typeof item === 'string') {
+            return this.sanitizeString(item);
+          }
+          if (typeof item === 'object' && item !== null) {
+            return this.sanitizeContext(item as LogContext);
+          }
+          return item;
+        });
+      } else if (typeof value === 'object' && value !== null) {
         cleaned[key] = this.sanitizeContext(value as LogContext);
       } else {
         cleaned[key] = value;
@@ -163,8 +184,12 @@ export class Logger implements ILogger {
     return cleaned;
   }
 
-  private sanitizeString(str: string): string {
-    return str.replace(SENSITIVE_VALUE_REGEX, '$1=[REDACTED]');
+  public sanitizeString(str: string): string {
+    return str
+      .replace(PRIVATE_KEY_REGEX, '[REDACTED PRIVATE KEY]')
+      .replace(BEARER_TOKEN_REGEX, 'Bearer [REDACTED]')
+      .replace(URL_CREDENTIALS_REGEX, '$1[REDACTED]$2')
+      .replace(SENSITIVE_KV_REGEX, '$1=[REDACTED]');
   }
 }
 

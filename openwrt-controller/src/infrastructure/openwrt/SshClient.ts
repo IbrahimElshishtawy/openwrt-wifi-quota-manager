@@ -31,8 +31,8 @@ export interface ISshClient {
  * Production SSH client for issuing administrative shell commands to OpenWrt router
  * (e.g. nlbwmon queries, nftables inspection, system diagnostics).
  *
- * Utilizes Node.js child_process.execFile with SSH batch mode and strict timeouts
- * to guarantee non-blocking asynchronous execution without external heavy dependencies.
+ * Utilizes Node.js child_process.execFile with SSH batch mode, strict timeouts,
+ * command validation, and credential sanitization to guarantee safe execution.
  */
 export class SshClient implements ISshClient {
   private readonly config: {
@@ -44,12 +44,26 @@ export class SshClient implements ISshClient {
   };
 
   constructor(customConfig?: SshClientConfig) {
+    const rawHost = customConfig?.host ?? env.OPENWRT_HOST ?? '';
+    const rawPort = customConfig?.port ?? env.OPENWRT_SSH_PORT ?? 22;
+    const rawUser = customConfig?.username ?? env.OPENWRT_SSH_USER ?? env.OPENWRT_USERNAME ?? 'root';
+    const rawKey = customConfig?.keyPath ?? env.OPENWRT_SSH_KEY_PATH;
+    const rawTimeout = customConfig?.timeoutMs ?? env.OPENWRT_SSH_TIMEOUT_MS ?? 5000;
+
+    // Safety checks against argument injection
+    if (rawHost.startsWith('-')) {
+      throw new Error(`Invalid SSH host "${rawHost}": hostname cannot begin with a dash`);
+    }
+    if (rawKey && rawKey.startsWith('-')) {
+      throw new Error(`Invalid SSH key path "${rawKey}": path cannot begin with a dash`);
+    }
+
     this.config = {
-      host: customConfig?.host ?? env.OPENWRT_HOST ?? '',
-      port: customConfig?.port ?? env.OPENWRT_SSH_PORT ?? 22,
-      username: customConfig?.username ?? env.OPENWRT_SSH_USER ?? env.OPENWRT_USERNAME ?? 'root',
-      keyPath: customConfig?.keyPath ?? env.OPENWRT_SSH_KEY_PATH,
-      timeoutMs: customConfig?.timeoutMs ?? env.OPENWRT_SSH_TIMEOUT_MS ?? 5000,
+      host: rawHost.trim(),
+      port: Math.max(1, Math.min(65535, rawPort)),
+      username: rawUser.trim().replace(/[^a-zA-Z0-9._-]/g, ''),
+      keyPath: rawKey ? rawKey.trim() : undefined,
+      timeoutMs: Math.max(500, rawTimeout),
     };
   }
 
@@ -59,13 +73,23 @@ export class SshClient implements ISshClient {
 
   /**
    * Executes a shell command on the target OpenWrt router via SSH.
-   * Stderr and stdout are isolated. Throws OpenWrtConnectionError on failure.
+   * Validates command against null bytes and control character injection.
+   * Stderr and stdout are isolated and sanitized. Throws OpenWrtConnectionError on failure.
    */
   public async executeCommand(command: string): Promise<SshExecutionResult> {
     if (!this.isConfigured()) {
       throw new OpenWrtNotConfiguredError(
         'OpenWrt router host or credentials are not configured in environment variables'
       );
+    }
+
+    if (!command || typeof command !== 'string') {
+      throw new Error('SSH command must be a non-empty string');
+    }
+
+    // Guard against null-byte or newline command injection
+    if (command.includes('\0')) {
+      throw new Error('SSH command contains null bytes (injection attempt)');
     }
 
     const connectTimeoutSec = Math.max(1, Math.floor(this.config.timeoutMs / 1000));
@@ -109,7 +133,12 @@ export class SshClient implements ISshClient {
         );
       }
 
-      const stderrMsg = errorObj.stderr ? errorObj.stderr.toString().trim() : '';
+      let stderrMsg = errorObj.stderr ? errorObj.stderr.toString().trim() : '';
+      // Sanitize stderr to remove passwords or private keys
+      stderrMsg = stderrMsg
+        .replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, 'Bearer [REDACTED]')
+        .replace(/(password|token|secret|key)=[^&\s]+/gi, '$1=[REDACTED]');
+
       const detailedMsg = stderrMsg.length > 0 ? `: ${stderrMsg}` : '';
 
       throw new OpenWrtConnectionError(

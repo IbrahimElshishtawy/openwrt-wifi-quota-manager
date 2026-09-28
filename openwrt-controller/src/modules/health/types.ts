@@ -18,7 +18,9 @@ export interface HealthReport {
   service: string;
   timestamp: string;
   uptimeSeconds: number;
+  router?: SystemHealthStatus;
   firewall: SubsystemHealth;
   quota: SubsystemHealth;
   reconciliation: ReconciliationHealth;
+  monitor?: string;
 }

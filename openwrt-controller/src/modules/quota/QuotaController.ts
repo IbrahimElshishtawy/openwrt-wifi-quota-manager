@@ -38,7 +38,7 @@ export class QuotaController {
       data: quota,
     };
 
-    reply.status(201).send(response);
+    return reply.status(201).send(response);
   };
 
   /**
@@ -57,7 +57,7 @@ export class QuotaController {
       count: quotas.length,
     };
 
-    reply.status(200).send(response);
+    return reply.status(200).send(response);
   };
 
   /**
@@ -76,7 +76,7 @@ export class QuotaController {
       data: quota,
     };
 
-    reply.status(200).send(response);
+    return reply.status(200).send(response);
   };
 
   /**
@@ -96,7 +96,7 @@ export class QuotaController {
       data: quota,
     };
 
-    reply.status(200).send(response);
+    return reply.status(200).send(response);
   };
 
   /**
@@ -115,7 +115,7 @@ export class QuotaController {
       data: quota,
     };
 
-    reply.status(200).send(response);
+    return reply.status(200).send(response);
   };
 
   /**
@@ -143,7 +143,7 @@ export class QuotaController {
       message: `Quota removed for device ${params.mac}`,
     };
 
-    reply.status(200).send(response);
+    return reply.status(200).send(response);
   };
 }
 

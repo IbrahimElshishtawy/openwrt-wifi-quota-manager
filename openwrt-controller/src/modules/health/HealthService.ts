@@ -51,14 +51,28 @@ export class HealthService {
       overallStatus = 'degraded';
     }
 
+    const routerStatus: SystemHealthStatus =
+      firewallHealth.status === 'unhealthy' ? 'unhealthy' :
+      firewallHealth.status === 'degraded' ? 'degraded' : 'healthy';
+
+    const monitorState =
+      this.monitor
+        ? typeof (this.monitor as { isRunning?: () => boolean }).isRunning === 'function' &&
+          (this.monitor as { isRunning: () => boolean }).isRunning()
+          ? 'running'
+          : 'stopped'
+        : 'disabled';
+
     return {
       status: overallStatus,
       service: 'openwrt-controller',
       timestamp,
       uptimeSeconds,
+      router: routerStatus,
       firewall: firewallHealth,
       quota: quotaHealth,
       reconciliation: reconciliationHealth,
+      monitor: monitorState,
     };
   }
 

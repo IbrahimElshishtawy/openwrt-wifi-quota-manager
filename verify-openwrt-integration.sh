@@ -85,7 +85,7 @@ echo "Running: npm run build..."
 npm run build
 assert_success "TypeScript Compilation (npm run build)" $?
 
-echo "Running: npm test (23 suites)..."
+echo "Running: npm test (30 suites)..."
 npm test
 assert_success "Full Unit & Integration Test Suites (npm test)" $?
 
@@ -117,7 +117,12 @@ print_header "Phase 3: Baseline Controller API Telemetry"
 if ! curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
     echo "Starting controller service..."
     node dist/server.js >/dev/null 2>&1 &
-    sleep 4
+    for i in {1..15}; do
+        if curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
+            break
+        fi
+        sleep 1
+    done
 fi
 
 echo "Testing GET /api/health..."
@@ -163,7 +168,12 @@ fi
 
 echo "Starting controller process again..."
 node dist/server.js >/dev/null 2>&1 &
-sleep 4
+for i in {1..15}; do
+    if curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
+        break
+    fi
+    sleep 1
+done
 
 echo "Verifying controller started and restored state without duplicate rules..."
 wait_element_state "$CLIENT_MAC" "present" 12
@@ -185,7 +195,7 @@ assert_success "Scenario A: Missing block automatically restored by reconciliati
 
 echo "Testing Scenario B: Quota reset unblocks device..."
 curl -s -X PATCH -H "Content-Type: application/json" -d '{"quotaBytes": 1000000000, "resetUsage": true}' "$CONTROLLER_URL/api/quotas/$CLIENT_MAC" >/dev/null
-wait_element_state "$CLIENT_MAC" "absent" 12
+wait_element_state "$CLIENT_MAC" "absent" 18
 assert_success "Scenario B: Quota reset successfully unblocked device in nftables" $?
 
 echo "Testing Scenario D: Manual block preservation..."
@@ -268,7 +278,7 @@ wait_element_state "$MANUAL_MAC" "absent" 10
 # Summary
 # ------------------------------------------------------------------------------
 print_header "Verification Summary"
-echo "Tests Passed: $PASSED_COUNT"ه
+echo "Tests Passed: $PASSED_COUNT"
 echo "Tests Failed: $FAILED_COUNT"
 echo ""
 

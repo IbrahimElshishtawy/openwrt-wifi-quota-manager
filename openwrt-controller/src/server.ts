@@ -8,6 +8,16 @@ const startServer = async (): Promise<void> => {
   // 1. Create app
   const app = await buildApp();
 
+  app.log.info(
+    {
+      nodeEnv: env.NODE_ENV,
+      authEnabled: env.NODE_ENV === 'production' || Boolean(env.API_AUTH_TOKEN ?? env.ADMIN_API_TOKEN),
+      corsOrigin: env.CORS_ORIGIN,
+      rateLimitMax: env.API_RATE_LIMIT_MAX,
+    },
+    'Configuration validated and security posture active'
+  );
+
   // 2. Initialize firewall enforcement
   try {
     app.log.info('Initializing firewall enforcement ruleset on OpenWrt...');

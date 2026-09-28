@@ -13,21 +13,27 @@ export const createQuotaSchema = z.object({
     .transform((val) => val.trim().replace(/-/g, ':').toUpperCase()),
   quotaBytes: z
     .number()
+    .finite('quotaBytes must be a finite number')
     .int('quotaBytes must be an integer')
-    .positive('quotaBytes must be a positive integer greater than 0'),
+    .positive('quotaBytes must be a positive integer greater than 0')
+    .max(Number.MAX_SAFE_INTEGER, 'quotaBytes exceeds maximum safe integer limits'),
 });
 
 export const updateQuotaSchema = z
   .object({
     quotaBytes: z
       .number()
+      .finite('quotaBytes must be a finite number')
       .int('quotaBytes must be an integer')
       .positive('quotaBytes must be a positive integer greater than 0')
+      .max(Number.MAX_SAFE_INTEGER, 'quotaBytes exceeds maximum safe integer limits')
       .optional(),
     usedBytes: z
       .number()
+      .finite('usedBytes must be a finite number')
       .int('usedBytes must be an integer')
       .nonnegative('usedBytes must be greater than or equal to 0')
+      .max(Number.MAX_SAFE_INTEGER, 'usedBytes exceeds maximum safe integer limits')
       .optional(),
     resetUsage: z.boolean().optional(),
   })

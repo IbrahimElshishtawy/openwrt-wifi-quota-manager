@@ -4,6 +4,9 @@ import {
   InvalidMacAddressError,
   FirewallExecutionError,
 } from './types.js';
+import { NftablesSafetyGuard, ForbiddenFirewallOperationError } from './NftablesSafetyGuard.js';
+
+export { ForbiddenFirewallOperationError };
 
 export interface INftablesClient {
   ensureRuleset(): Promise<void>;
@@ -22,29 +25,28 @@ export interface INftablesClient {
  * - Chain: `forward_block` (hook forward, priority -5)
  *
  * Guarantees idempotency and zero interference with OpenWrt's native firewall4 (`inet fw4`).
+ * Hardened with NftablesSafetyGuard to strictly reject modifications to other tables.
  */
 export class NftablesClient implements INftablesClient {
-  public static readonly TABLE_NAME = 'quota_enforcement';
+  public static readonly TABLE_NAME = NftablesSafetyGuard.ALLOWED_TABLE;
   public static readonly SET_NAME = 'blocked_macs';
   public static readonly CHAIN_NAME = 'forward_block';
-
-  private static readonly MAC_REGEX = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
 
   constructor(private readonly ssh: ISshClient = sshClient) {}
 
   /**
-   * Strictly validates and normalizes a MAC address to prevent shell injection
-   * and maintain uniform uppercase colon formatting.
+   * Strictly validates and normalizes a MAC address using NftablesSafetyGuard.
    */
   public validateMac(rawMac: string): string {
-    if (!rawMac || typeof rawMac !== 'string') {
-      throw new InvalidMacAddressError('MAC address is required and must be a string');
-    }
-    const clean = rawMac.trim();
-    if (!NftablesClient.MAC_REGEX.test(clean)) {
-      throw new InvalidMacAddressError(`Invalid MAC address format: "${rawMac}"`);
-    }
-    return normalizeMac(clean);
+    return NftablesSafetyGuard.validateMac(rawMac);
+  }
+
+  /**
+   * Safely executes an nftables command, enforcing table boundaries and rejecting forbidden operations.
+   */
+  public async executeSafeNft(cmd: string) {
+    NftablesSafetyGuard.assertSafeNftCommand(cmd);
+    return this.ssh.executeCommand(cmd);
   }
 
   /**
@@ -63,7 +65,7 @@ export class NftablesClient implements INftablesClient {
     // 1. Check if the table exists
     let tableExists = false;
     try {
-      const res = await this.ssh.executeCommand(`nft list table inet ${table} 2>/dev/null`);
+      const res = await this.executeSafeNft(`nft list table inet ${table} 2>/dev/null`);
       tableExists = res.exitCode === 0;
     } catch {
       tableExists = false;
@@ -80,9 +82,10 @@ export class NftablesClient implements INftablesClient {
       ].join(' && ');
 
       try {
-        await this.ssh.executeCommand(fullInitCmd);
+        await this.executeSafeNft(fullInitCmd);
         return;
       } catch (err: unknown) {
+        if (err instanceof ForbiddenFirewallOperationError) throw err;
         throw new FirewallExecutionError(
           `Failed to initialize dedicated nftables table inet ${table} on OpenWrt`,
           err
@@ -95,13 +98,13 @@ export class NftablesClient implements INftablesClient {
       // Check set
       let setExists = false;
       try {
-        const setRes = await this.ssh.executeCommand(`nft list set inet ${table} ${set} 2>/dev/null`);
+        const setRes = await this.executeSafeNft(`nft list set inet ${table} ${set} 2>/dev/null`);
         setExists = setRes.exitCode === 0;
       } catch {
         setExists = false;
       }
       if (!setExists) {
-        await this.ssh.executeCommand(
+        await this.executeSafeNft(
           `nft 'add set inet ${table} ${set} { type ether_addr; flags interval; comment "Blocked MAC addresses"; }'`
         );
       }
@@ -110,7 +113,7 @@ export class NftablesClient implements INftablesClient {
       let chainContent = '';
       let chainExists = false;
       try {
-        const chainRes = await this.ssh.executeCommand(`nft list chain inet ${table} ${chain} 2>/dev/null`);
+        const chainRes = await this.executeSafeNft(`nft list chain inet ${table} ${chain} 2>/dev/null`);
         chainExists = chainRes.exitCode === 0;
         chainContent = chainRes.stdout ?? '';
       } catch {
@@ -118,21 +121,22 @@ export class NftablesClient implements INftablesClient {
       }
 
       if (!chainExists) {
-        await this.ssh.executeCommand(
+        await this.executeSafeNft(
           `nft 'add chain inet ${table} ${chain} { type filter hook forward priority -5; policy accept; }'`
         );
       }
 
       // Check outbound drop rule (ether saddr @blocked_macs)
       if (!chainContent.includes(`saddr @${set}`)) {
-        await this.ssh.executeCommand(`nft add rule inet ${table} ${chain} ether saddr @${set} counter drop`);
+        await this.executeSafeNft(`nft add rule inet ${table} ${chain} ether saddr @${set} counter drop`);
       }
 
       // Check inbound return drop rule (ether daddr @blocked_macs)
       if (!chainContent.includes(`daddr @${set}`)) {
-        await this.ssh.executeCommand(`nft add rule inet ${table} ${chain} ether daddr @${set} counter drop`);
+        await this.executeSafeNft(`nft add rule inet ${table} ${chain} ether daddr @${set} counter drop`);
       }
     } catch (err: unknown) {
+      if (err instanceof ForbiddenFirewallOperationError) throw err;
       throw new FirewallExecutionError(
         `Failed to verify or update nftables structures for table inet ${table}`,
         err
@@ -153,8 +157,9 @@ export class NftablesClient implements INftablesClient {
     const cmd = `nft add element inet ${table} ${set} '{ ${normMac} }'`;
 
     try {
-      await this.ssh.executeCommand(cmd);
+      await this.executeSafeNft(cmd);
     } catch (err: unknown) {
+      if (err instanceof ForbiddenFirewallOperationError) throw err;
       const errMsg = err instanceof Error ? err.message : String(err);
       // If nftables reports that element already exists, treat as idempotent success
       if (errMsg.toLowerCase().includes('file exists') || errMsg.toLowerCase().includes('already exists')) {
@@ -181,8 +186,9 @@ export class NftablesClient implements INftablesClient {
     const cmd = `nft delete element inet ${table} ${set} '{ ${normMac} }'`;
 
     try {
-      await this.ssh.executeCommand(cmd);
+      await this.executeSafeNft(cmd);
     } catch (err: unknown) {
+      if (err instanceof ForbiddenFirewallOperationError) throw err;
       const errMsg = err instanceof Error ? err.message : String(err);
       // Treat non-existent element as safe idempotent deletion
       if (
@@ -210,9 +216,10 @@ export class NftablesClient implements INftablesClient {
     const cmd = `nft get element inet ${table} ${set} '{ ${normMac} }'`;
 
     try {
-      const res = await this.ssh.executeCommand(cmd);
+      const res = await this.executeSafeNft(cmd);
       return res.exitCode === 0;
-    } catch {
+    } catch (err: unknown) {
+      if (err instanceof ForbiddenFirewallOperationError) throw err;
       return false;
     }
   }
@@ -228,7 +235,7 @@ export class NftablesClient implements INftablesClient {
     const cmd = `nft -j list set inet ${table} ${set} 2>/dev/null || nft list set inet ${table} ${set}`;
 
     try {
-      const res = await this.ssh.executeCommand(cmd);
+      const res = await this.executeSafeNft(cmd);
       if (!res.stdout) return [];
 
       // 1. Parse JSON output
@@ -268,6 +275,7 @@ export class NftablesClient implements INftablesClient {
 
       return [];
     } catch (err: unknown) {
+      if (err instanceof ForbiddenFirewallOperationError) throw err;
       throw new FirewallExecutionError(`Failed to list blocked MACs from nftables set ${set}`, err);
     }
   }
