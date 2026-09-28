@@ -47,7 +47,7 @@ function createMockDevicesService(options: {
     detectInfrastructure: async () => defaultInfra,
     getBaselineInfrastructure: () => defaultInfra,
     getConnectedDevices: async () => devices,
-    isRealLanClient: (candidate, infra) => {
+    isRealLanClient: (candidate: any, infra: any) => {
       if (!candidate.mac) return false;
       const norm = candidate.mac.toUpperCase();
       if (infra.excludedMacs.has(norm)) return false;
