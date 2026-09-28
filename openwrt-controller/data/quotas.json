@@ -3,12 +3,12 @@
     "mac": "52:54:00:CE:1C:BE",
     "quotaBytes": 1000000000,
     "lastSeenTotalBytes": 360072,
-    "accumulatedUsedBytes": 168,
-    "usedBytes": 168,
-    "remainingBytes": 999999832,
+    "accumulatedUsedBytes": 0,
+    "usedBytes": 0,
+    "remainingBytes": 1000000000,
     "percentage": 0,
     "status": "active",
     "createdAt": "2026-09-27T16:41:49.334Z",
-    "updatedAt": "2026-09-28T11:48:29.247Z"
+    "updatedAt": "2026-09-28T11:50:24.332Z"
   }
 ]
