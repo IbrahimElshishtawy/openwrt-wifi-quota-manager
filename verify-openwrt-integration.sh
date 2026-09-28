@@ -53,6 +53,28 @@ function wait_ssh() {
     return 0
 }
 
+function wait_element_state() {
+    local mac="$1"
+    local expected="$2" # "present" or "absent"
+    local max_wait="${3:-12}"
+    local count=0
+    while [ "$count" -lt "$max_wait" ]; do
+        local in_set=0
+        if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=2 "root@$ROUTER_IP" "nft list set inet quota_enforcement blocked_macs" 2>/dev/null | grep -qi "$mac"; then
+            in_set=1
+        fi
+        if [ "$expected" = "present" ] && [ "$in_set" -eq 1 ]; then
+            return 0
+        fi
+        if [ "$expected" = "absent" ] && [ "$in_set" -eq 0 ]; then
+            return 0
+        fi
+        sleep 2
+        count=$((count + 2))
+    done
+    return 1
+}
+
 # ------------------------------------------------------------------------------
 # Phase 1: Build & Automated Unit/Integration Tests
 # ------------------------------------------------------------------------------
@@ -92,6 +114,12 @@ assert_success "Dedicated table inet quota_enforcement exists" $?
 # ------------------------------------------------------------------------------
 print_header "Phase 3: Baseline Controller API Telemetry"
 
+if ! curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
+    echo "Starting controller service..."
+    node dist/server.js >/dev/null 2>&1 &
+    sleep 4
+fi
+
 echo "Testing GET /api/health..."
 HEALTH_RESP=$(curl -s "$CONTROLLER_URL/api/health")
 echo "$HEALTH_RESP"
@@ -123,10 +151,7 @@ print_header "Phase 4: Controller Restart Recovery"
 
 echo "Ensuring client is in exhausted state..."
 curl -s -X PATCH -H "Content-Type: application/json" -d '{"quotaBytes": 1000, "usedBytes": 5000}' "$CONTROLLER_URL/api/quotas/$CLIENT_MAC" >/dev/null
-sleep 6
-
-echo "Verifying client is blocked in nftables before restart..."
-ssh "root@$ROUTER_IP" "nft list table inet quota_enforcement" | grep -qi "$CLIENT_MAC"
+wait_element_state "$CLIENT_MAC" "present" 12
 assert_success "Device blocked before controller restart" $?
 
 echo "Stopping controller process..."
@@ -141,7 +166,7 @@ node dist/server.js >/dev/null 2>&1 &
 sleep 4
 
 echo "Verifying controller started and restored state without duplicate rules..."
-ssh "root@$ROUTER_IP" "nft list table inet quota_enforcement" | grep -qi "$CLIENT_MAC"
+wait_element_state "$CLIENT_MAC" "present" 12
 assert_success "Device remains blocked after controller restart" $?
 
 # ------------------------------------------------------------------------------
@@ -151,26 +176,21 @@ print_header "Phase 5: nftables State Loss Reconciliation (Scenario A, B, C, D)"
 
 echo "Deleting element from nftables to simulate kernel state loss..."
 ssh "root@$ROUTER_IP" "nft delete element inet quota_enforcement blocked_macs '{ $(echo "$CLIENT_MAC" | tr '[:upper:]' '[:lower:]') }'"
-ssh "root@$ROUTER_IP" "nft list set inet quota_enforcement blocked_macs" | grep -q -v "$CLIENT_MAC"
+wait_element_state "$CLIENT_MAC" "absent" 4
 assert_success "Element removed manually from nftables" $?
 
-echo "Waiting for periodic reconciliation cycle (6s)..."
-sleep 6
-
-echo "Verifying missing block restored by controller..."
-ssh "root@$ROUTER_IP" "nft list set inet quota_enforcement blocked_macs" | grep -qi "$CLIENT_MAC"
+echo "Waiting for periodic reconciliation cycle..."
+wait_element_state "$CLIENT_MAC" "present" 12
 assert_success "Scenario A: Missing block automatically restored by reconciliation" $?
 
 echo "Testing Scenario B: Quota reset unblocks device..."
 curl -s -X PATCH -H "Content-Type: application/json" -d '{"quotaBytes": 1000000000, "resetUsage": true}' "$CONTROLLER_URL/api/quotas/$CLIENT_MAC" >/dev/null
-sleep 6
-ssh "root@$ROUTER_IP" "nft list set inet quota_enforcement blocked_macs" | grep -q -v -i "$CLIENT_MAC"
+wait_element_state "$CLIENT_MAC" "absent" 12
 assert_success "Scenario B: Quota reset successfully unblocked device in nftables" $?
 
 echo "Testing Scenario D: Manual block preservation..."
 curl -s -X POST -H "Content-Type: application/json" -d "{\"mac\": \"$MANUAL_MAC\", \"source\": \"manual\"}" "$CONTROLLER_URL/api/firewall/block" >/dev/null
-sleep 6
-ssh "root@$ROUTER_IP" "nft list set inet quota_enforcement blocked_macs" | grep -qi "$MANUAL_MAC"
+wait_element_state "$MANUAL_MAC" "present" 12
 assert_success "Scenario D: Manual admin block present in nftables" $?
 
 # ------------------------------------------------------------------------------
@@ -197,7 +217,7 @@ print_header "Phase 7: LAN vs Internet Isolation"
 
 echo "Re-applying quota block on test client..."
 curl -s -X PATCH -H "Content-Type: application/json" -d '{"quotaBytes": 1000, "usedBytes": 5000}' "$CONTROLLER_URL/api/quotas/$CLIENT_MAC" >/dev/null
-sleep 6
+wait_element_state "$CLIENT_MAC" "present" 12
 
 echo "Testing LAN access from test client to router ($ROUTER_IP)..."
 ssh "root@$CLIENT_IP" "ping -c 2 $ROUTER_IP" >/dev/null
@@ -222,23 +242,27 @@ if [ "${RUN_VM_REBOOT:-0}" = "1" ]; then
     sleep 8
 
     echo "Verifying quota-exhausted client re-blocked after router reboot..."
-    ssh "root@$ROUTER_IP" "nft list table inet quota_enforcement" | grep -qi "$CLIENT_MAC"
+    wait_element_state "$CLIENT_MAC" "present" 20
     assert_success "Quota block restored after OpenWrt reboot" $?
 
     echo "Verifying manual block restored after router reboot..."
-    ssh "root@$ROUTER_IP" "nft list table inet quota_enforcement" | grep -qi "$MANUAL_MAC"
+    wait_element_state "$MANUAL_MAC" "present" 12
     assert_success "Manual admin block restored after OpenWrt reboot" $?
 else
     echo "Skipping live VM reboot (set RUN_VM_REBOOT=1 to execute live VM reboot)."
     echo "Simulating table flush & recovery instead..."
+    curl -s -X PATCH -H "Content-Type: application/json" -d '{"quotaBytes": 1000, "usedBytes": 5000}' "$CONTROLLER_URL/api/quotas/$CLIENT_MAC" >/dev/null
+    sleep 2
     ssh "root@$ROUTER_IP" "nft delete table inet quota_enforcement"
-    sleep 6
-    ssh "root@$ROUTER_IP" "nft list table inet quota_enforcement" | grep -qi "$CLIENT_MAC"
+    wait_element_state "$CLIENT_MAC" "present" 14
     assert_success "Quota block restored after simulated reboot table flush" $?
 fi
 
-# Cleanup manual test block
+# Cleanup manual test block and reset quota
+curl -s -X PATCH -H "Content-Type: application/json" -d '{"quotaBytes": 1000000000, "resetUsage": true}' "$CONTROLLER_URL/api/quotas/$CLIENT_MAC" >/dev/null 2>&1 || true
 curl -s -X POST -H "Content-Type: application/json" -d "{\"mac\": \"$MANUAL_MAC\", \"source\": \"manual\"}" "$CONTROLLER_URL/api/firewall/unblock" >/dev/null 2>&1 || true
+wait_element_state "$CLIENT_MAC" "absent" 10
+wait_element_state "$MANUAL_MAC" "absent" 10
 
 # ------------------------------------------------------------------------------
 # Summary

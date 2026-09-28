@@ -39,7 +39,11 @@ export const firewallRoutes: FastifyPluginAsync<FirewallRoutesOptions> = async (
 
   fastify.post('/api/block', controller.blockDevice);
   fastify.post('/block', controller.blockDevice);
+  fastify.post('/api/firewall/block', controller.blockDevice);
+  fastify.post('/firewall/block', controller.blockDevice);
 
   fastify.post('/api/unblock', controller.unblockDevice);
   fastify.post('/unblock', controller.unblockDevice);
+  fastify.post('/api/firewall/unblock', controller.unblockDevice);
+  fastify.post('/firewall/unblock', controller.unblockDevice);
 };

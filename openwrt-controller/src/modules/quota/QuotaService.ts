@@ -161,6 +161,14 @@ export class QuotaService {
       record.quotaBytes = dto.quotaBytes;
     }
 
+    if (dto.usedBytes !== undefined) {
+      if (dto.usedBytes < 0 || !Number.isInteger(dto.usedBytes)) {
+        throw new InvalidDeviceQuotaError('usedBytes must be a non-negative integer.');
+      }
+      record.accumulatedUsedBytes = dto.usedBytes;
+      record.usedBytes = dto.usedBytes;
+    }
+
     if (dto.resetUsage === true) {
       // Explicit reset intended: re-capture current usage counter as new baseline
       const freshUsageList = await this.usage.getDeviceUsage();
@@ -168,7 +176,7 @@ export class QuotaService {
       record.lastSeenTotalBytes = currentUsage ? currentUsage.totalBytes : 0;
       record.accumulatedUsedBytes = 0;
       record.usedBytes = 0;
-    } else {
+    } else if (dto.usedBytes === undefined) {
       // Synchronize with fresh telemetry without resetting accumulated usage
       const freshUsageList = await this.usage.getDeviceUsage().catch(() => []);
       this.applyFreshUsage(record, freshUsageList);

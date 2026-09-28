@@ -24,12 +24,17 @@ export const updateQuotaSchema = z
       .int('quotaBytes must be an integer')
       .positive('quotaBytes must be a positive integer greater than 0')
       .optional(),
+    usedBytes: z
+      .number()
+      .int('usedBytes must be an integer')
+      .nonnegative('usedBytes must be greater than or equal to 0')
+      .optional(),
     resetUsage: z.boolean().optional(),
   })
   .refine(
-    (data) => data.quotaBytes !== undefined || data.resetUsage !== undefined,
+    (data) => data.quotaBytes !== undefined || data.usedBytes !== undefined || data.resetUsage !== undefined,
     {
-      message: 'At least one of quotaBytes or resetUsage must be specified for update',
+      message: 'At least one of quotaBytes, usedBytes, or resetUsage must be specified for update',
     }
   );
 
@@ -144,6 +149,7 @@ export const updateQuotaRouteSchema = {
       type: 'object',
       properties: {
         quotaBytes: { type: 'number', minimum: 1 },
+        usedBytes: { type: 'number', minimum: 0 },
         resetUsage: { type: 'boolean' },
       },
     },
