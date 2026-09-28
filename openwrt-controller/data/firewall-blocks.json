@@ -2,5 +2,7 @@
   "manualBlockedMacs": [
     "52:54:00:11:22:33"
   ],
-  "quotaBlockedMacs": []
+  "quotaBlockedMacs": [
+    "52:54:00:CE:1C:BE"
+  ]
 }

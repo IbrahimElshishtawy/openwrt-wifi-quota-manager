@@ -7,6 +7,7 @@
     "start": "npm --prefix openwrt-controller start",
     "dev": "npm --prefix openwrt-controller run dev",
     "build": "npm --prefix openwrt-controller run build",
-    "test": "npm --prefix openwrt-controller test"
+    "test": "npm --prefix openwrt-controller test",
+    "docker:build": "docker build -t openwrt-controller:1.0.0 -t openwrt-controller:latest -f openwrt-controller/Dockerfile openwrt-controller"
   }
 }

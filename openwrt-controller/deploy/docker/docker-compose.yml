@@ -7,12 +7,14 @@ services:
     container_name: openwrt-controller
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${HOST_PORT:-3050}:3000"
     env_file:
       - path: ../../.env.production
         required: false
+      - path: ../../.env
+        required: false
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=${NODE_ENV:-development}
       - HOST=0.0.0.0
       - PORT=3000
     volumes:
