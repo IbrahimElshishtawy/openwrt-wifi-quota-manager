@@ -268,7 +268,7 @@ wait_element_state "$MANUAL_MAC" "absent" 10
 # Summary
 # ------------------------------------------------------------------------------
 print_header "Verification Summary"
-echo "Tests Passed: $PASSED_COUNT"
+echo "Tests Passed: $PASSED_COUNT"ه
 echo "Tests Failed: $FAILED_COUNT"
 echo ""
 
