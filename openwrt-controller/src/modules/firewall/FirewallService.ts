@@ -82,12 +82,20 @@ export class FirewallService implements IFirewallService {
     const manualMacs = await this.repository.listBlockedMacsBySource('manual');
     if (manualMacs.length === 0) return;
 
+    let currentBlockedSet: Set<string>;
+    try {
+      const blockedList = await this.nftables.listBlockedMacs();
+      currentBlockedSet = new Set(blockedList.map((m) => m.toUpperCase()));
+    } catch {
+      currentBlockedSet = new Set();
+    }
+
     for (const rawMac of manualMacs) {
       try {
         const normMac = normalizeMac(rawMac);
-        const isBlocked = await this.nftables.hasBlockedMac(normMac);
-        if (!isBlocked) {
+        if (!currentBlockedSet.has(normMac)) {
           await this.nftables.addBlockedMac(normMac);
+          currentBlockedSet.add(normMac);
         }
       } catch {
         // Continue reconciling remaining manual blocks (error isolation)

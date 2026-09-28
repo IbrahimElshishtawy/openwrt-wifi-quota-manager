@@ -1,4 +1,5 @@
 import type { RetryOptions } from './resilience.types.js';
+import { CircuitBreakerOpenError } from './resilience.types.js';
 import {
   InvalidMacAddressError,
   InfrastructureDeviceError,
@@ -14,6 +15,7 @@ import { OpenWrtNotConfiguredError } from '../openwrt/UbusClient.js';
 export class RetryPolicy {
   public static isSafeToRetry(error: unknown): boolean {
     if (
+      error instanceof CircuitBreakerOpenError ||
       error instanceof InvalidMacAddressError ||
       error instanceof InfrastructureDeviceError ||
       error instanceof NonClientDeviceError ||

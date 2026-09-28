@@ -384,7 +384,11 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
       if (typeof (this.firewallService as { reconcileManualBlocks?: () => Promise<void> }).reconcileManualBlocks === 'function') {
         try {
           this.metrics.increment('firewall_operations');
-          await (this.firewallService as { reconcileManualBlocks: () => Promise<void> }).reconcileManualBlocks();
+          await this.circuitBreaker.execute(() =>
+            this.retryPolicy.execute(() =>
+              (this.firewallService as { reconcileManualBlocks: () => Promise<void> }).reconcileManualBlocks()
+            )
+          );
           this.metrics.increment('manual_blocks_restored');
         } catch (manualErr: unknown) {
           const errMsg = this.sanitizeErrorMessage(manualErr);
@@ -503,7 +507,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
             if (isActuallyBlocked) {
               if (!isQuotaRecorded) {
                 this.metrics.increment('firewall_operations');
-                await this.firewallService.blockDevice(mac, 'quota');
+                await this.circuitBreaker.execute(() =>
+                  this.retryPolicy.execute(() => this.firewallService.blockDevice(mac, 'quota'))
+                );
               }
               this.enforcementState.set(mac, 'blocked');
               unchangedCount++;
@@ -521,7 +527,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
               this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=blocked actual=unblocked action=block`);
 
               this.metrics.increment('firewall_operations');
-              await this.firewallService.blockDevice(mac, 'quota');
+              await this.circuitBreaker.execute(() =>
+                this.retryPolicy.execute(() => this.firewallService.blockDevice(mac, 'quota'))
+              );
               this.enforcementState.set(mac, 'blocked');
 
               this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=blocked actual=unblocked action=block result=success`);
@@ -556,7 +564,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
                   logReconciliationStarted();
                   this.logger.info(`Preserving manual block: ${mac}`);
                   this.metrics.increment('firewall_operations');
-                  await this.firewallService.unblockDevice(mac, 'quota');
+                  await this.circuitBreaker.execute(() =>
+                    this.retryPolicy.execute(() => this.firewallService.unblockDevice(mac, 'quota'))
+                  );
                   this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=preserve reason="manual_block_protected"`);
                   cycleLogger.info('manual_block_protected', { reconciliationId, mac });
                 }
@@ -576,7 +586,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
                 this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=unblock`);
 
                 this.metrics.increment('firewall_operations');
-                await this.firewallService.unblockDevice(mac, 'quota');
+                await this.circuitBreaker.execute(() =>
+                  this.retryPolicy.execute(() => this.firewallService.unblockDevice(mac, 'quota'))
+                );
                 this.enforcementState.set(mac, 'unblocked');
 
                 this.logger.info(`[QuotaReconciliation] MAC=${mac} desired=unblocked actual=blocked action=unblock result=success`);
@@ -656,7 +668,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
           if (isManual) {
             if (isQuota) {
               this.metrics.increment('firewall_operations');
-              await this.firewallService.unblockDevice(blockedMac, 'quota');
+              await this.circuitBreaker.execute(() =>
+                this.retryPolicy.execute(() => this.firewallService.unblockDevice(blockedMac, 'quota'))
+              );
             }
             continue;
           }
@@ -668,7 +682,9 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
           this.logger.info(`[QuotaReconciliation] MAC=${blockedMac} desired=unblocked actual=blocked action=unblock`);
 
           this.metrics.increment('firewall_operations');
-          await this.firewallService.unblockDevice(blockedMac, 'quota');
+          await this.circuitBreaker.execute(() =>
+            this.retryPolicy.execute(() => this.firewallService.unblockDevice(blockedMac, 'quota'))
+          );
           this.enforcementState.delete(blockedMac);
 
           this.logger.info(`[QuotaReconciliation] MAC=${blockedMac} desired=unblocked actual=blocked action=unblock result=success`);
