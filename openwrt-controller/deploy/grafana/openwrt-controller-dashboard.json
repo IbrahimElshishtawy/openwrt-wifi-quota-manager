@@ -1,0 +1,233 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
+        "enable": true,
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Controller Overview & Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "color": "red", "text": "DOWN" }, "1": { "color": "green", "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [{ "expr": "up{job=\"openwrt-controller\"}", "refId": "A" }],
+      "title": "Status",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [{ "expr": "process_uptime_seconds", "refId": "A" }],
+      "title": "Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "color": "green", "text": "CLOSED" }, "1": { "color": "orange", "text": "HALF_OPEN" }, "2": { "color": "red", "text": "OPEN" } }, "type": "value" }
+          ]
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [{ "expr": "resilience_circuit_breaker_state", "refId": "A" }],
+      "title": "Circuit Breaker",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "http_active_requests", "refId": "A" }],
+      "title": "Active Requests",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 1 },
+      "id": 5,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "process_memory_rss_bytes", "legendFormat": "RSS", "refId": "A" },
+        { "expr": "process_memory_heap_used_bytes", "legendFormat": "Heap Used", "refId": "B" }
+      ],
+      "title": "Process Memory",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "HTTP Traffic & Performance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+      "id": 6,
+      "targets": [
+        { "expr": "rate(http_requests_total[1m])", "legendFormat": "Request Rate", "refId": "A" }
+      ],
+      "title": "HTTP Request Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 6 },
+      "id": 7,
+      "targets": [
+        { "expr": "rate(http_errors_total[1m])", "legendFormat": "Error Rate", "refId": "A" }
+      ],
+      "title": "HTTP Error Rate",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
+      "id": 102,
+      "title": "OpenWrt Subsystem (SSH, ubus, nftables)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 13 },
+      "id": 8,
+      "targets": [
+        { "expr": "rate(openwrt_ssh_attempts_total[2m])", "legendFormat": "SSH Attempts/sec", "refId": "A" },
+        { "expr": "rate(openwrt_ssh_successes_total[2m])", "legendFormat": "SSH Success/sec", "refId": "B" },
+        { "expr": "rate(openwrt_ssh_failures_total[2m])", "legendFormat": "SSH Failures/sec", "refId": "C" }
+      ],
+      "title": "OpenWrt SSH Operations",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 13 },
+      "id": 9,
+      "targets": [
+        { "expr": "rate(openwrt_ubus_calls_total[2m])", "legendFormat": "ubus Calls/sec", "refId": "A" },
+        { "expr": "rate(openwrt_ubus_failures_total[2m])", "legendFormat": "ubus Failures/sec", "refId": "B" },
+        { "expr": "rate(openwrt_nftables_operations_total[2m])", "legendFormat": "nftables Ops/sec", "refId": "C" },
+        { "expr": "rate(openwrt_nftables_failures_total[2m])", "legendFormat": "nftables Failures/sec", "refId": "D" }
+      ],
+      "title": "OpenWrt ubus & nftables Operations",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 },
+      "id": 103,
+      "title": "Quota Enforcement & Reconciliation",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 20 },
+      "id": 10,
+      "targets": [
+        { "expr": "quota_records_total", "legendFormat": "Total Quotas", "refId": "A" },
+        { "expr": "quota_active_total", "legendFormat": "Active Quotas", "refId": "B" },
+        { "expr": "quota_exhausted_total", "legendFormat": "Exhausted Quotas", "refId": "C" },
+        { "expr": "quota_blocked_devices_total", "legendFormat": "Blocked Devices", "refId": "D" }
+      ],
+      "title": "Quota & Device Counts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 20 },
+      "id": 11,
+      "targets": [
+        { "expr": "rate(quota_enforcement_cycles_total[2m])", "legendFormat": "Enforcement Cycles/sec", "refId": "A" },
+        { "expr": "rate(quota_enforcement_failures_total[2m])", "legendFormat": "Enforcement Failures/sec", "refId": "B" },
+        { "expr": "rate(quota_reconciliation_cycles_total[2m])", "legendFormat": "Reconciliation Cycles/sec", "refId": "C" },
+        { "expr": "rate(quota_reconciliation_failures_total[2m])", "legendFormat": "Reconciliation Failures/sec", "refId": "D" }
+      ],
+      "title": "Enforcement & Reconciliation Cycles",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["openwrt", "quota", "controller", "production"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
+  },
+  "timezone": "browser",
+  "title": "OpenWrt WiFi Quota Manager - Controller Dashboard",
+  "uid": "openwrt-controller-main",
+  "version": 1
+}

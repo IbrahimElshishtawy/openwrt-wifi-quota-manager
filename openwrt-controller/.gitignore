@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# TypeScript build outputs
+dist/
+
+# Local Environment & Secrets
+.env
+.env.production
+.env.local
+.env.*.local
+*.pem
+*.key
+id_*
+
+# Logs
+*.log
+npm-debug.log*
+
+# Backups & Temp files
+backups/
+*.tmp
+*.bak

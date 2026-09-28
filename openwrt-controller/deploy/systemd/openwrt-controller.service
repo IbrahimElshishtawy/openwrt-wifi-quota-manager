@@ -1,0 +1,52 @@
+[Unit]
+Description=OpenWrt WiFi Quota Manager Backend Controller
+Documentation=https://github.com/IbrahimElshishtawy/openwrt-wifi-quota-manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openwrt
+Group=openwrt
+
+# Working directory and execution binary
+WorkingDirectory=/opt/openwrt-controller
+ExecStart=/usr/bin/node dist/server.js
+
+# Environment file with production configuration
+EnvironmentFile=-/etc/openwrt-controller/controller.env
+Environment=NODE_ENV=production
+
+# Automatic restart on failure with backoff delay
+Restart=always
+RestartSec=5s
+
+# Graceful termination
+KillSignal=SIGTERM
+TimeoutStopSec=15s
+SendSIGKILL=yes
+
+# Resource constraints
+LimitNOFILE=65536
+MemoryMax=512M
+
+# Hardening and sandbox restrictions
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/openwrt-controller/data /var/log
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Logging directly to systemd journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openwrt-controller
+
+[Install]
+WantedBy=multi-user.target

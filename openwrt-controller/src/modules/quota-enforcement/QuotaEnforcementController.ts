@@ -32,6 +32,21 @@ export class QuotaEnforcementController {
       ...status,
     });
   };
+
+  public triggerSync = async (
+    _request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<void> => {
+    if ('sync' in this.monitor && typeof (this.monitor as { sync: () => Promise<void> }).sync === 'function') {
+      await (this.monitor as { sync: () => Promise<void> }).sync();
+    }
+    const status = this.monitor.getStatus();
+    return reply.status(200).send({
+      success: true,
+      message: 'Enforcement and reconciliation cycle triggered',
+      ...status,
+    });
+  };
 }
 
 export const quotaEnforcementController = new QuotaEnforcementController();

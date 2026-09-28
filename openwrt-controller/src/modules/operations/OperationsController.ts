@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { env } from '../../config/env.js';
+import { APP_VERSION } from '../../version.js';
 import { circuitBreaker as defaultCircuitBreaker, CircuitBreaker } from '../../infrastructure/resilience/CircuitBreaker.js';
 import { metricsService as defaultMetricsService, MetricsService } from '../../infrastructure/metrics/MetricsService.js';
 import { quotaEnforcementMonitor as defaultMonitor, QuotaEnforcementMonitor } from '../quota/QuotaEnforcementMonitor.js';
@@ -106,7 +107,7 @@ export class OperationsController {
       status: healthReport.status,
       timestamp,
       uptimeSeconds,
-      controllerVersion: '1.0.0',
+      controllerVersion: APP_VERSION,
       nodeEnv: env.NODE_ENV,
       openwrt: {
         host: env.OPENWRT_HOST ?? 'unconfigured',

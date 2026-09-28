@@ -1,0 +1,16 @@
+node_modules
+dist
+tests
+.git
+.gitignore
+.env
+.env.*
+*.log
+*.tmp
+*.bak
+backups
+coverage
+deploy
+measure-perf.sh
+Dockerfile
+.dockerignore

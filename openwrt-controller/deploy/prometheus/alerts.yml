@@ -1,0 +1,116 @@
+groups:
+  - name: openwrt_controller_alerts
+    rules:
+      # ========================================================================
+      # Controller Availability & Health
+      # ========================================================================
+      - alert: OpenWrtControllerDown
+        expr: up{job="openwrt-controller"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenWrt Controller instance is unreachable"
+          description: "Controller instance {{ $labels.instance }} has been unreachable for more than 1 minute."
+
+      # ========================================================================
+      # HTTP Performance & Errors
+      # ========================================================================
+      - alert: HighHttpErrorRate
+        expr: increase(http_errors_total[2m]) > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate detected on controller"
+          description: "Controller on {{ $labels.instance }} logged {{ $value }} HTTP errors in the last 2 minutes."
+
+      - alert: HighActiveHttpRequests
+        expr: http_active_requests > 50
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High active in-flight HTTP requests"
+          description: "Controller has {{ $value }} concurrent in-flight HTTP requests."
+
+      # ========================================================================
+      # OpenWrt Router Connectivity & Circuit Breaker
+      # ========================================================================
+      - alert: OpenWrtCircuitBreakerOpen
+        expr: resilience_circuit_breaker_state == 2
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenWrt Circuit Breaker is OPEN"
+          description: "Circuit breaker is OPEN due to repeated failures communicating with the router. Outgoing requests are fast-failing."
+
+      - alert: OpenWrtSshFailuresSpike
+        expr: increase(openwrt_ssh_failures_total[5m]) > 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Elevated OpenWrt SSH failures"
+          description: "Router SSH commands failed {{ $value }} times over the past 5 minutes."
+
+      - alert: OpenWrtUbusFailuresSpike
+        expr: increase(openwrt_ubus_failures_total[5m]) > 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated OpenWrt ubus failures"
+          description: "Router ubus RPC calls failed {{ $value }} times over the past 5 minutes."
+
+      - alert: OpenWrtNftablesFailuresSpike
+        expr: increase(openwrt_nftables_failures_total[5m]) > 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenWrt nftables rule operation failed"
+          description: "Firewall nftables operations encountered failures during enforcement."
+
+      # ========================================================================
+      # Quota Enforcement & Reconciliation
+      # ========================================================================
+      - alert: QuotaEnforcementCycleFailures
+        expr: increase(quota_enforcement_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Quota enforcement monitor cycles failing"
+          description: "Quota enforcement monitor failed {{ $value }} cycles over the past 5 minutes."
+
+      - alert: QuotaReconciliationFailures
+        expr: increase(quota_reconciliation_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Quota reconciliation cycles failing"
+          description: "Quota reconciliation with router firewall set encountered {{ $value }} failures."
+
+      # ========================================================================
+      # System Resources
+      # ========================================================================
+      - alert: HighMemoryUsage
+        expr: process_memory_rss_bytes > 419430400  # 400 MB
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Controller RSS memory high"
+          description: "Controller process RSS memory has exceeded 400MB (current: {{ $value | humanize1024 }})."
+
+      - alert: HighEventLoopLag
+        expr: process_event_loop_lag_ms > 100
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node.js Event Loop Lag is elevated"
+          description: "Event loop lag is {{ $value }}ms, which may indicate blocking synchronous operations."

@@ -24,4 +24,8 @@ export const quotaEnforcementRoutes: FastifyPluginAsync<QuotaEnforcementRoutesOp
   // Administrative / monitoring telemetry endpoint
   fastify.get('/api/quota-enforcement/status', controller.getStatus);
   fastify.get('/quota-enforcement/status', controller.getStatus);
+
+  // Administrative trigger for immediate enforcement & reconciliation cycle
+  fastify.post('/api/quota-enforcement/sync', controller.triggerSync);
+  fastify.post('/quota-enforcement/sync', controller.triggerSync);
 };

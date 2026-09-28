@@ -1,5 +1,6 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
+import { APP_VERSION } from './version.js';
 import { firewallService } from './modules/firewall/FirewallService.js';
 import { quotaEnforcementMonitor } from './modules/quota/QuotaEnforcementMonitor.js';
 import { GracefulShutdownHandler } from './infrastructure/shutdown/GracefulShutdown.js';
@@ -63,11 +64,12 @@ const startServer = async (): Promise<void> => {
 
     app.log.info(
       {
+        version: APP_VERSION,
         host: env.HOST,
         port: env.PORT,
         nodeEnv: env.NODE_ENV,
       },
-      `🚀 OpenWrt Controller server listening at ${address}`
+      `🚀 OpenWrt Controller v${APP_VERSION} listening at ${address}`
     );
   } catch (err) {
     app.log.error(err, 'Failed to start server');
