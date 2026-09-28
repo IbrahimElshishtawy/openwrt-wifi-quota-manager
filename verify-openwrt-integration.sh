@@ -6,7 +6,8 @@
 
 set -uo pipefail
 
-CONTROLLER_URL="http://127.0.0.1:3000"
+CONTROLLER_PORT="${PORT:-3001}"
+CONTROLLER_URL="http://127.0.0.1:${CONTROLLER_PORT}"
 ROUTER_IP="192.168.50.1"
 CLIENT_IP="192.168.50.50"
 CLIENT_MAC="52:54:00:CE:1C:BE"
@@ -114,9 +115,14 @@ assert_success "Dedicated table inet quota_enforcement exists" $?
 # ------------------------------------------------------------------------------
 print_header "Phase 3: Baseline Controller API Telemetry"
 
-if ! curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
-    echo "Starting controller service..."
-    node dist/server.js >/dev/null 2>&1 &
+SERVER_PID=""
+if curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
+    SERVER_PID=$(lsof -ti :"$CONTROLLER_PORT" 2>/dev/null | head -n 1 || true)
+    echo "Controller already running on port $CONTROLLER_PORT (PID: ${SERVER_PID:-unknown})"
+else
+    echo "Starting controller service on port $CONTROLLER_PORT..."
+    PORT="$CONTROLLER_PORT" node dist/server.js >/dev/null 2>&1 &
+    SERVER_PID=$!
     for i in {1..15}; do
         if curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
             break
@@ -189,15 +195,17 @@ curl -s -X PATCH -H "Content-Type: application/json" -d '{"quotaBytes": 1000, "u
 wait_element_state "$CLIENT_MAC" "present" 12
 assert_success "Device blocked before controller restart" $?
 
-echo "Stopping controller process..."
-SERVER_PID=$(pgrep -f "dist/server.js" | head -n 1 || true)
-if [ -n "$SERVER_PID" ]; then
+echo "Stopping controller process (PID: ${SERVER_PID:-unknown})..."
+if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID"
-    sleep 2
+else
+    pkill -f "openwrt-controller.*server" || true
 fi
+sleep 2
 
-echo "Starting controller process again..."
-node dist/server.js >/dev/null 2>&1 &
+echo "Starting controller process again on port $CONTROLLER_PORT..."
+PORT="$CONTROLLER_PORT" node dist/server.js >/dev/null 2>&1 &
+SERVER_PID=$!
 for i in {1..15}; do
     if curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
         break
