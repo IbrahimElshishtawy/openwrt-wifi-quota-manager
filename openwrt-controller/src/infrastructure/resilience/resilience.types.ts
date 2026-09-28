@@ -10,10 +10,10 @@ export interface RetryOptions {
 export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
 export interface CircuitBreakerOptions {
-  failureThreshold?: number;
-  cooldownPeriodMs?: number;
-  successThreshold?: number;
-  onStateChange?: (from: CircuitState, to: CircuitState) => void;
+  failureThreshold?: number | undefined;
+  cooldownPeriodMs?: number | undefined;
+  successThreshold?: number | undefined;
+  onStateChange?: ((from: CircuitState, to: CircuitState) => void) | undefined;
 }
 
 export class CircuitBreakerOpenError extends Error {

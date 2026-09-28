@@ -16,16 +16,16 @@ const SENSITIVE_KEY_REGEX = /^(password|token|secret|private[_-]?key|auth|author
 const SENSITIVE_VALUE_REGEX = /(password|token|secret|key)=[^&\s]+/gi;
 
 export interface LoggerOptions {
-  minLevel?: LogLevel;
-  bindings?: LogContext;
-  sink?: (entry: StructuredLogEntry, formattedJson: string) => void;
-  outputJson?: boolean;
+  minLevel?: LogLevel | undefined;
+  bindings?: LogContext | undefined;
+  sink?: ((entry: StructuredLogEntry, formattedJson: string) => void) | undefined;
+  outputJson?: boolean | undefined;
 }
 
 export class Logger implements ILogger {
   private readonly minLevel: LogLevel;
   private readonly bindings: LogContext;
-  private readonly sink?: (entry: StructuredLogEntry, formattedJson: string) => void;
+  private readonly sink: ((entry: StructuredLogEntry, formattedJson: string) => void) | undefined;
   private readonly outputJson: boolean;
 
   constructor(options: LoggerOptions = {}) {

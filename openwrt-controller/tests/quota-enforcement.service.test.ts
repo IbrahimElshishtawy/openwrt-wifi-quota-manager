@@ -288,7 +288,7 @@ async function runEnforcementServiceTests() {
     const quotaRepo = new InMemoryQuotaRepository();
     const mac = '52:54:00:CE:1C:BE';
 
-    const currentUsage: DeviceUsage[] = [{ mac, ip: '192.168.50.50', rxBytes: 2500000000, txBytes: 2500000000, totalBytes: 5000000000 }];
+    const currentUsage: DeviceUsage[] = [{ mac, ip: '192.168.50.50', downloadBytes: 2500000000, uploadBytes: 2500000000, totalBytes: 5000000000 }];
     const usageServiceMock = {
       getDeviceUsage: async () => currentUsage,
     } as unknown as UsageService;
@@ -328,7 +328,7 @@ async function runEnforcementServiceTests() {
     const quotaRepo = new InMemoryQuotaRepository();
     const mac = '52:54:00:CE:1C:BE';
 
-    const currentUsage: DeviceUsage[] = [{ mac, ip: '192.168.50.50', rxBytes: 500000, txBytes: 500000, totalBytes: 1000000 }];
+    const currentUsage: DeviceUsage[] = [{ mac, ip: '192.168.50.50', downloadBytes: 500000, uploadBytes: 500000, totalBytes: 1000000 }];
     const usageServiceMock = {
       getDeviceUsage: async () => currentUsage,
     } as unknown as UsageService;

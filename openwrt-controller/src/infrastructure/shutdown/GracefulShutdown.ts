@@ -9,7 +9,7 @@ export interface ShutdownOptions {
 export class GracefulShutdownHandler {
   private isShuttingDown = false;
   private readonly app: FastifyInstance;
-  private readonly monitor?: IQuotaEnforcementMonitor;
+  private readonly monitor: IQuotaEnforcementMonitor | undefined;
   private readonly timeoutMs: number;
   private readonly logger: { info: (msg: string) => void; error: (msg: string, err?: unknown) => void };
 

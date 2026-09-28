@@ -17,7 +17,7 @@ export class CircuitBreaker {
   private readonly failureThreshold: number;
   private readonly cooldownPeriodMs: number;
   private readonly successThreshold: number;
-  private readonly onStateChange?: (from: CircuitState, to: CircuitState) => void;
+  private readonly onStateChange: ((from: CircuitState, to: CircuitState) => void) | undefined;
 
   constructor(options: CircuitBreakerOptions = {}) {
     this.failureThreshold = options.failureThreshold ?? 3;
@@ -75,12 +75,12 @@ export class CircuitBreaker {
 
   public recordFailure(): void {
     this.lastFailureTime = Date.now();
+    this.consecutiveFailures++;
 
     if (this.state === 'HALF_OPEN') {
       // In HALF_OPEN, any failure immediately re-trips back to OPEN
       this.transitionTo('OPEN');
     } else if (this.state === 'CLOSED') {
-      this.consecutiveFailures++;
       if (this.consecutiveFailures >= this.failureThreshold) {
         this.transitionTo('OPEN');
       }
