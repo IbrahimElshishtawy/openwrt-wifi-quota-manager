@@ -21,7 +21,7 @@ export class UsageController {
       count: usage.length,
     };
 
-    reply.status(200).send(responsePayload);
+    return reply.status(200).send(responsePayload);
   };
 }
 

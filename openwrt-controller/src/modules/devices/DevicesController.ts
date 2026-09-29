@@ -25,7 +25,7 @@ export class DevicesController {
       count: devices.length,
     };
 
-    reply.status(200).send(responsePayload);
+    return reply.status(200).send(responsePayload);
   };
 }
 
