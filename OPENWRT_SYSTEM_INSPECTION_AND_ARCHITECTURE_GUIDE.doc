@@ -1,0 +1,720 @@
+<html xmlns:o='urn:schemas-microsoft-com:office:office'
+xmlns:w='urn:schemas-microsoft-com:office:word'
+xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>دليل فحص OpenWrt وتوثيق النظام</title>
+<!--[if gte mso 9]>
+<xml>
+ <w:WordDocument>
+  <w:View>Print</w:View>
+  <w:Zoom>100</w:Zoom>
+  <w:DoNotOptimizeForBrowser/>
+ </w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+@page {
+    size: A4 portrait;
+    margin: 2cm 2cm 2cm 2cm;
+}
+body {
+    font-family: 'Segoe UI', 'Cairo', 'Tahoma', 'Arial', sans-serif;
+    font-size: 11pt;
+    line-height: 1.6;
+    color: #1e293b;
+    direction: rtl;
+    text-align: right;
+    background-color: #ffffff;
+}
+h1 {
+    font-size: 22pt;
+    color: #0f172a;
+    border-bottom: 2pt solid #2563eb;
+    padding-bottom: 8px;
+    margin-top: 24px;
+    margin-bottom: 16px;
+    text-align: center;
+}
+h2 {
+    font-size: 16pt;
+    color: #1d4ed8;
+    border-bottom: 1pt solid #cbd5e1;
+    padding-bottom: 6px;
+    margin-top: 22px;
+    margin-bottom: 12px;
+}
+h3 {
+    font-size: 13pt;
+    color: #0284c7;
+    margin-top: 16px;
+    margin-bottom: 8px;
+}
+h4 {
+    font-size: 11pt;
+    color: #334155;
+    margin-top: 12px;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+p {
+    margin-top: 6px;
+    margin-bottom: 8px;
+}
+code {
+    font-family: 'Consolas', 'Courier New', monospace;
+    background-color: #f1f5f9;
+    color: #b91c1c;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 10pt;
+    direction: ltr;
+    display: inline-block;
+}
+pre {
+    font-family: 'Consolas', 'Courier New', monospace;
+    background-color: #0f172a;
+    color: #f8fafc;
+    padding: 12px 14px;
+    border-radius: 6px;
+    font-size: 9.5pt;
+    line-height: 1.45;
+    direction: ltr;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-all;
+    border: 1px solid #334155;
+    margin: 10px 0;
+}
+pre.mermaid-box {
+    background-color: #f8fafc;
+    color: #0f172a;
+    border: 1.5pt dashed #64748b;
+    font-size: 9pt;
+    direction: ltr;
+    text-align: left;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 10pt;
+}
+th {
+    background-color: #1e40af;
+    color: #ffffff;
+    font-weight: bold;
+    padding: 8px 10px;
+    border: 1px solid #1e3a8a;
+    text-align: right;
+}
+td {
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    text-align: right;
+}
+tr:nth-child(even) {
+    background-color: #f8fafc;
+}
+blockquote {
+    border-right: 4px solid #2563eb;
+    background-color: #eff6ff;
+    padding: 10px 14px;
+    margin: 12px 0;
+    color: #1e3a8a;
+    border-radius: 0 4px 4px 0;
+}
+ul, ol {
+    margin-right: 20px;
+    padding-right: 10px;
+    margin-bottom: 10px;
+}
+li {
+    margin-bottom: 5px;
+}
+hr {
+    border: 0;
+    border-top: 1px solid #e2e8f0;
+    margin: 20px 0;
+}
+.badge-pass {
+    color: #15803d;
+    font-weight: bold;
+}
+</style>
+</head>
+<body>
+<h1>📘 الدليل الشامل لفحص واختبار OpenWrt وتوثيق معمارية نظام إدارة الكوتا (OpenWrt Wi-Fi Quota Manager)</h1>
+<hr>
+<h2>📑 فهرس المحتويات</h2>
+<ol><li><a href="#1-نظرة-عامة-على-المشروع-وما-تم-إنجازه">نظرة عامة على المشروع وما تم إنجازه</a></li></ol>
+<ol><li><a href="#2-المخططات-المعمارية-الشاملة-architectural-diagrams">المخططات المعمارية الشاملة (Architectural Diagrams)</a></li></ol>
+<ul><li><a href="#21-المخطط-العام-للنظام-بالكامل-end-to-end-system">المخطط العام للنظام بالكامل (End-to-End System)</a></li></ul>
+<ul><li><a href="#22-معمارية-نظام-openwrt-الداخلي-وتدفق-البيانات">معمارية نظام OpenWrt الداخلي وتدفق البيانات</a></li></ul>
+<ul><li><a href="#23-مخطط-أمان-الجدار-الناري-وحماية-الإدارة-firewall-safety">مخطط أمان الجدار الناري وحماية الإدارة (Firewall Safety)</a></li></ul>
+<ul><li><a href="#24-مخطط-دورة-فحص-الكوتا-والحظر-التلقائي-enforcement-lifecycle">مخطط دورة فحص الكوتا والحظر التلقائي (Enforcement Lifecycle)</a></li></ul>
+<ul><li><a href="#25-مخطط-المواءمة-الذاتية-واستعادة-الاتصال-reconciliation--healing">مخطط المواءمة الذاتية واستعادة الاتصال (Reconciliation &amp; Healing)</a></li></ul>
+<ol><li><a href="#3-أكواد-وأوامر-الترمنل-لفحص-كل-صغيرة-وكبيرة-في-openwrt">أكواد وأوامر الترمنل لفحص كل صغيرة وكبيرة في OpenWrt</a></li></ol>
+<ul><li><a href="#31-المجموعة-1-أوامر-الاتصال-وفحص-حالة-نظام-الراوتر-والعتاد">المجموعة 1: أوامر الاتصال وفحص حالة نظام الراوتر والعتاد</a></li></ul>
+<ul><li><a href="#32-المجموعة-2-فحص-الحزم-والخدمات-المثبتة-dependencies--packages">المجموعة 2: فحص الحزم والخدمات المثبتة (Dependencies &amp; Packages)</a></li></ul>
+<ul><li><a href="#33-المجموعة-3-فحص-مراقبة-استهلاك-الباندويث-nlbwmon--ubus">المجموعة 3: فحص مراقبة استهلاك الباندويث (nlbwmon &amp; ubus)</a></li></ul>
+<ul><li><a href="#34-المجموعة-4-فحص-جدول-الأجهزة-المتصلة-وعناوين-الـ-mac-و-dhcp">المجموعة 4: فحص جدول الأجهزة المتصلة وعناوين الـ MAC و DHCP</a></li></ul>
+<ul><li><a href="#35-المجموعة-5-فحص-الجدار-الناري-وجداول-nftables-بدقة">المجموعة 5: فحص الجدار الناري وجداول nftables بدقة</a></li></ul>
+<ul><li><a href="#36-المجموعة-6-فحص-سكريبتات-وخدمات-البايثون-في-الراوتر">المجموعة 6: فحص سكريبتات وخدمات البايثون في الراوتر</a></li></ul>
+<ul><li><a href="#37-المجموعة-7-فحص-واختبار-rest-api-المحلي-في-الراوتر-port-8080">المجموعة 7: فحص واختبار REST API المحلي في الراوتر (Port 8080)</a></li></ul>
+<ul><li><a href="#38-المجموعة-8-فحص-سجلات-النظام-syslog--quota-logs">المجموعة 8: فحص سجلات النظام (Syslog &amp; Quota Logs)</a></li></ul>
+<ol><li><a href="#4-أكواد-وأوامر-فحص-الكنترولر-المركزي-openwrt-controller---port-30003001">أكواد وأوامر فحص الكنترولر المركزي (OpenWrt Controller - Port 3000/3001)</a></li></ol>
+<ul><li><a href="#41-فحص-الـ-health-والـ-readiness">فحص الـ Health والـ Readiness</a></li></ul>
+<ul><li><a href="#42-فحص-مقاييس-الأداء-والمراقبة-prometheus--json-metrics">فحص مقاييس الأداء والمراقبة (Prometheus &amp; JSON Metrics)</a></li></ul>
+<ul><li><a href="#43-فحص-وإدارة-الكوتا-والأجهزة-عبر-api-الكنترولر">فحص وإدارة الكوتا والأجهزة عبر API الكنترولر</a></li></ul>
+<ul><li><a href="#44-استخدام-أداة-الـ-cli-الإدارية-wifi-controller">استخدام أداة الـ CLI الإدارية (<code>wifi-controller</code>)</a></li></ul>
+<ol><li><a href="#5-أوامر-تشغيل-الاختبارات-الآلية-الشاملة-automated-test-suites">أوامر تشغيل الاختبارات الآلية الشاملة (Automated Test Suites)</a></li></ol>
+<ol><li><a href="#6-دليل-الصيانة-السريعة-والتعامل-مع-الطوارئ-troubleshooting--disaster-recovery">دليل الصيانة السريعة والتعامل مع الطوارئ (Troubleshooting &amp; Disaster Recovery)</a></li></ol>
+<hr>
+<h2>1. نظرة عامة على المشروع وما تم إنجازه</h2>
+<p>تم بناء نظام متكامل واحترافي لإدارة واحتساب وتطبيق كوتا الإنترنت على أجهزة راوتر <strong>OpenWrt</strong>، ويتكون المشروع من ثلاثة أركان رئيسية تعمل بتناغم تام:</p>
+<ol><li><strong>طبقة الراوتر (OpenWrt Subsystem):</strong></li></ol>
+<ul><li>مراقبة سريعة وخفيفة للباندويث عبر النواة مباشرة باستخدام <code>nlbwmon</code>.</li></ul>
+<ul><li>جدار ناري عالي الكفاءة مبني على <code>nftables</code> يعمل في مسار التوجيه <code>forward</code> فقط لمنع أي قطع لإدارة الراوتر.</li></ul>
+<ul><li>محرك بايثون خفيف مخصص لبيئات الذاكرة المحدودة (بدون أي مكتبات خارجية ثقيلة) لإدارة الأجهزة وفحص الكوتا وإرسال التنبيهات (80%, 90%, 95%, 100%).</li></ul>
+<ul><li>خادم REST API داخلي مدمج يعمل على المنفذ <code>8080</code> مع توثيق Bearer Token.</li></ul>
+<ul><li>خدمة تلقائية عبر نظام الإشراف <code>procd</code> وجدولة زمنية كل دقيقة عبر <code>cron</code>.</li></ul>
+<ol><li><strong>طبقة الكنترولر المتقدم (OpenWrt Controller Backend - Node.js/TypeScript):</strong></li></ol>
+<ul><li>معمارية برمجية نقية (Clean Architecture) تفصل بين منطق العمل (Domain)، البنية التحتية (Infrastructure)، وواجهات برمجة التطبيقات (API).</li></ul>
+<ul><li>محرك مواءمة ذاتية فائق الذكاء (Self-Healing Reconciliation Engine) يعيد حظر الأجهزة المستنفذة للكوتا تلقائياً حتى لو تمت إعادة تشغيل الراوتر أو تم مسح الجدار الناري يدوياً.</li></ul>
+<ul><li>قاطع دائرة حرج (Circuit Breaker) لحماية النظام عند انقطاع الراوتر واستعادة الاتصال تلقائياً.</li></ul>
+<ul><li>نظام حماية صارم يمنع حظر عنوان الـ MAC للراوتر نفسه أو كروت الجسر (Bridge MACs) نهائياً.</li></ul>
+<ul><li>مراقبة إنتاجية كاملة تدعم Prometheus Metrics ولوحات تحكم Grafana وسجلات تفصيلية عبر Pino.</li></ul>
+<ul><li>أداة سطر أوامر إدارية سريعة <code>wifi-controller</code> وحزم نشر عبر Docker و systemd.</li></ul>
+<ol><li><strong>تطبيق الموبايل (Flutter Cross-Platform Client):</strong></li></ol>
+<ul><li>لوحة تحكم عصرية تعرض الاستهلاك الفعلي، السرعات الحالية، والكوتا المتبقية بدقة.</li></ul>
+<ul><li>شاشة لإدارة الأجهزة مع إمكانية الحظر اليدوي وتحديد كوتا مخصصة لكل جهاز بالجيجابايت.</li></ul>
+<ul><li>نظام اتصالات مباشر مع الراوتر أو الكنترولر مع دعم التشفير والوضع التجريبي (Demo Mode).</li></ul>
+<hr>
+<h2>2. المخططات المعمارية الشاملة (Architectural Diagrams)</h2>
+<h3>2.1 المخطط العام للنظام بالكامل (End-to-End System)</h3>
+<pre class="mermaid-box"><code>┌─────────────────────────────────────────────────────────────────────────────┐
+│                           1. المستخدم والتطبيقات                           │
+│                                                                             │
+│     ┌────────────────────────┐                  ┌──────────────────────┐    │
+│     │   Flutter Mobile App   │                  │  Admin CLI Terminal  │    │
+│     │ (Dashboard &amp; Controls) │                  │  (wifi-controller)   │    │
+│     └───────────┬────────────┘                  └──────────┬───────────┘    │
+└─────────────────┼──────────────────────────────────────────┼────────────────┘
+                  │                                          │
+                  │ HTTPS / JSON                             │ REST API
+                  ▼                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│             2. الكنترولر المركزي المتقدم (Backend Controller)               │
+│                       Fastify / TypeScript (Port 3000)                      │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ Security Layer: Rate Limiting • Bearer Auth • Zod Schema Validation   │  │
+│  └──────────────────────────────────┬────────────────────────────────────┘  │
+│                                     │                                       │
+│  ┌──────────────────────────────────┴────────────────────────────────────┐  │
+│  │ Core Domain Engine:                                                   │  │
+│  │  • Quota Reconciliation Engine (Scenarios A, B, C, D)                 │  │
+│  │  • Circuit Breaker (Closed ──&gt; Open ──&gt; Half-Open)                    │  │
+│  │  • Device Whitelist &amp; Router MAC Protection Guard                     │  │
+│  └──────────────────────────────────┬────────────────────────────────────┘  │
+│                                     │                                       │
+│  ┌──────────────────────────────────┴────────────────────────────────────┐  │
+│  │ Observability Engine:                                                 │  │
+│  │  • /health/live &amp; /health/ready  • Prometheus /metrics  • Pino Logs   │  │
+│  └──────────────────────────────────┬────────────────────────────────────┘  │
+└─────────────────────────────────────┼───────────────────────────────────────┘
+                                      │
+                                      │ SSH / ubus RPC / JSON API
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        3. راوتر OpenWrt (OpenWrt Router)                    │
+│                                                                             │
+│  ┌───────────────────────────┐                ┌──────────────────────────┐  │
+│  │    Traffic Accounting     │                │   DHCP / DNS Subsystem   │  │
+│  │   nlbwmon (Kernel Sockets)│                │  dnsmasq (/tmp/dhcp.leases)││
+│  └─────────────┬─────────────┘                └────────────┬─────────────┘  │
+│                │ (ubus query)                              │ (ARP / Leases) │
+│                ▼                                           ▼                │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     OpenWrt Python Subsystem                          │  │
+│  │   • usage_manager.py (حساب الميجابايت بدقة)                            │  │
+│  │   • device_manager.py (اكتشاف الأجهزة والـ Hostnames)                 │  │
+│  │   • check_quota.py (فحص نسب الكوتا 80%, 90%, 95%, 100%)               │  │
+│  │   • api_usage.py (خادم REST API المحلي على بورت 8080)                 │  │
+│  └──────────────────────────────────┬────────────────────────────────────┘  │
+│                                     │                                       │
+│                                     │ nftables commands                     │
+│                                     ▼                                       │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     Kernel nftables (fw4 Isolated)                    │  │
+│  │        table inet quota_manager / quota_enforcement                   │  │
+│  │        set blocked_devices { type ether_addr; }                       │  │
+│  │        hook forward priority -5 / -10 ──&gt; DROP Internet Traffic       │  │
+│  └──────────────────────────────────┬────────────────────────────────────┘  │
+└─────────────────────────────────────┼───────────────────────────────────────┘
+                                      │
+                                      ▼
+                        ┌───────────────────────────┐
+                        │    🌐 WAN / الإنترنت      │
+                        │ (الأجهزة المحظورة تُمنع)  │
+                        └───────────────────────────┘</code></pre>
+<hr>
+<h3>2.2 معمارية نظام OpenWrt الداخلي وتدفق البيانات</h3>
+<pre class="mermaid-box"><code>graph TD
+    subgraph Router_Kernel [&quot;نواة نظام لينكس على الراوتر (Linux Kernel)&quot;]
+        NL[Netlink Socket / Packet Counters]
+        NFT[nftables: table inet quota_manager]
+        SET[Set: blocked_devices MACs]
+        NFT --&gt;|قاعدة الفحص| SET
+    end
+
+    subgraph Monitoring [&quot;طبقة رصد الاستهلاك&quot;]
+        NLB[nlbwmon Daemon]
+        NL --&gt;|تجميع العدادات| NLB
+        UBUS[OpenWrt ubus RPC Bus]
+        NLB --&gt;|تسجيل الخدمة| UBUS
+    end
+
+    subgraph Discovery [&quot;طبقة اكتشاف الأجهزة&quot;]
+        DNSM[dnsmasq /tmp/dhcp.leases]
+        ARP[/proc/net/arp]
+        DEV_MGR[device_manager.py]
+        DNSM --&gt; DEV_MGR
+        ARP --&gt; DEV_MGR
+    end
+
+    subgraph Core_Engine [&quot;محرك الكوتا وقرارات الحظر&quot;]
+        USAGE_MGR[usage_manager.py]
+        UBUS --&gt;|ubus call nlbwmon query| USAGE_MGR
+        CHECK_Q[check_quota.py]
+        USAGE_MGR --&gt;|بيانات الاستهلاك بالبايت| CHECK_Q
+        DEV_MGR --&gt;|قائمة الأجهزة وحدود الكوتا| CHECK_Q
+    end
+
+    subgraph Enforcement [&quot;طبقة التطبيق والتنفيذ&quot;]
+        CHECK_Q --&gt;|تجاوز 100%| BLOCK[إضافة MAC إلى set]
+        BLOCK --&gt;|nft add element| SET
+        CHECK_Q --&gt;|شحن أو تصفير الكوتا| UNBLOCK[حذف MAC من set]
+        UNBLOCK --&gt;|nft delete element| SET
+    end
+
+    subgraph Local_API [&quot;خادم API المحلي (Port 8080)&quot;]
+        REST[api_usage.py]
+        REST --&gt; DEV_MGR
+        REST --&gt; USAGE_MGR
+        REST --&gt; CHECK_Q
+    end</code></pre>
+<hr>
+<h3>2.3 مخطط أمان الجدار الناري وحماية الإدارة (Firewall Safety)</h3>
+<blockquote>[!IMPORTANT]<br><strong>ضمان عدم انقطاع الإدارة نهائياً</strong>:<br>تم تصميم قواعد الجدار الناري لترتبط فقط بسلسلة التوجيه العابر (<code>forward chain</code>)، ولا ترتبط نهائياً بسلسلة الدخول للراوتر (<code>input chain</code>). هذا يضمن أن الجهاز المحظور يستطيع دائماً فتح صفحة الراوتر أو الاتصال بالـ API أو استخدام الـ DNS/DHCP، ولكنه لا يستطيع العبور إلى الإنترنت الخارجي.</blockquote>
+<pre class="mermaid-box"><code>                                  حزمة واردة من جهاز متصل (LAN Client Packet)
+                                                       │
+                                                       ▼
+                                            ┌─────────────────────┐
+                                            │ مسار الحزمة بالراوتر│
+                                            └──────────┬──────────┘
+                                                       │
+                           ┌───────────────────────────┴───────────────────────────┐
+                           │                                                       │
+          [الوجهة: الراوتر نفسه (192.168.1.1)]                  [الوجهة: موقع خارجي على الإنترنت (WAN)]
+                           │                                                       │
+                           ▼                                                       ▼
+                ┌─────────────────────┐                                 ┌─────────────────────┐
+                │     Input Chain     │                                 │    Forward Chain    │
+                └──────────┬──────────┘                                 └──────────┬──────────┘
+                           │                                                       │
+               قواعد الجدار الناري العادية                             قواعد كوتا المانجر (Priority -5)
+                 (OpenWrt fw4 Normal)                              inet quota_manager / forward_quota
+                           │                                                       │
+            ┌──────────────┴──────────────┐                                        ▼
+            ▼                             ▼                             ┌─────────────────────┐
+   [منافذ الإدارة مسموحة]       [خدمات الشبكة مسموحة]                   │ هل الـ MAC محظور؟   │
+    • SSH (Port 22)               • DNS (Port 53)                       └──────────┬──────────┘
+    • LuCI Web (Port 80/443)      • DHCP (Port 67)                                 │
+    • Quota API (Port 8080)       • Ping (ICMP)                            ┌───────┴───────┐
+            │                             │                                ▼               ▼
+            └──────────────┬──────────────┘                              [ نعم ]        [ لا ]
+                           │                                               │               │
+                           ▼                                               ▼               ▼
+                 ✅ مسموح بالدخول دائماً                              ❌ إسقاط الحزمة   ✅ تمرير
+                 (مستحيل حظر المدير)                                    (DROP)        (ACCEPT)</code></pre>
+<hr>
+<h3>2.4 مخطط دورة فحص الكوتا والحظر التلقائي (Enforcement Lifecycle)</h3>
+<pre class="mermaid-box"><code>sequenceDiagram
+    autonumber
+    participant Cron as Cron Job (/etc/crontabs/root)
+    participant Engine as check_quota.py
+    participant Usage as usage_manager.py
+    participant Kernel as nlbwmon / ubus
+    participant NFT as nftables (blocked_devices)
+    participant Log as /var/log/quota_manager.log
+
+    Note over Cron: كل 60 ثانية (دقيقة)
+    Cron-&gt;&gt;Engine: تشغيل فحص الكوتا الدوري
+    Engine-&gt;&gt;Usage: استدعاء بيانات الاستهلاك لكل MAC
+    Usage-&gt;&gt;Kernel: ubus call nlbwmon query (JSON)
+    Kernel--&gt;&gt;Usage: مصفوفة الاستهلاك (RX/TX Bytes)
+    Usage--&gt;&gt;Engine: استهلاك الأجهزة المحسوب بدقة
+    
+    loop لكل جهاز مسجل
+        Engine-&gt;&gt;Engine: حساب النسبة = (المستهلك / الكوتا) * 100
+        alt النسبة بين 80% و 99%
+            Engine-&gt;&gt;Log: تسجيل تحذير (مع منع التكرار Warning Deduplication)
+        else النسبة &gt;= 100% (استنفاد الكوتا)
+            Engine-&gt;&gt;NFT: nft add element inet quota_manager blocked_devices { MAC }
+            NFT--&gt;&gt;Engine: تم تحديث النواة (Dropped)
+            Engine-&gt;&gt;Log: تسجيل حدث الحظر الفوري (EXHAUSTED &amp; BLOCKED)
+        else الكوتا مشحونة والـ MAC محظور
+            Engine-&gt;&gt;NFT: nft delete element inet quota_manager blocked_devices { MAC }
+            NFT--&gt;&gt;Engine: تم رفع الحظر (Restored)
+            Engine-&gt;&gt;Log: تسجيل حدث فك الحظر (QUOTA RESTORED)
+        end
+    end</code></pre>
+<hr>
+<h3>2.5 مخطط المواءمة الذاتية واستعادة الاتصال (Reconciliation &amp; Healing)</h3>
+<p>يوضح هذا المخطط كيفية تعامل الكنترولر مع حالات فقدان الاتصال، أو إعادة تشغيل الراوتر، أو مسح الجدار الناري يدوياً:</p>
+<pre class="mermaid-box"><code>stateDiagram-v2
+    [*] --&gt; Closed_Normal: النظام يعمل بشكل طبيعي
+    
+    state Closed_Normal {
+        [*] --&gt; PeriodicSync
+        PeriodicSync --&gt; CompareState: مطابقة حالة التخزين مع حالة الراوتر الحالية
+        CompareState --&gt; Scenario_A: ماك مستنفذ غير محظور في nftables
+        Scenario_A --&gt; RepairBlock: تنفيذ أمر الحظر فوراً (Auto-Repair)
+        CompareState --&gt; Scenario_B: ماك تم تصفير كوتته وما زال محظوراً
+        Scenario_B --&gt; RepairUnblock: إزالة الماك فوراً (Auto-Unblock)
+        CompareState --&gt; Scenario_C: راوتر أعاد التشغيل وفقد الجداول
+        Scenario_C --&gt; RecreateTable: إعادة بناء الجداول ومزامنة كل المحظورين
+        CompareState --&gt; Scenario_D: ماك محظور يدوياً من الأدمن
+        Scenario_D --&gt; PreserveBlock: حماية الحظر اليدوي من الإزالة
+    }
+
+    Closed_Normal --&gt; Open_Breaker: فشل الاتصال بالراوتر (&gt;= 3 محاولات)
+    
+    state Open_Breaker {
+        [*] --&gt; FastFail: إرجاع خطأ فوري وحماية الـ Event Loop
+        FastFail --&gt; CooldownWait: انتظار انتهاء فترة التبريد (10 ثواني)
+    }
+
+    Open_Breaker --&gt; HalfOpen_Probe: انتهاء التبريد وتجربة مسبار التحقق
+    
+    state HalfOpen_Probe {
+        [*] --&gt; TestPing: فحص أمر تجريبي بسيط (echo/health)
+        TestPing --&gt; SuccessProbe: نجاح الاتصال
+        TestPing --&gt; FailProbe: فشل الاتصال
+    }
+
+    HalfOpen_Probe --&gt; Closed_Normal: نجاح المسبار واستعادة الخدمة
+    HalfOpen_Probe --&gt; Open_Breaker: فشل المسبار والعودة للتبريد</code></pre>
+<hr>
+<h2>3. أكواد وأوامر الترمنل لفحص كل صغيرة وكبيرة في OpenWrt</h2>
+<p>فيما يلي قائمة شاملة بجميع الأوامر التي يمكنك تنفيذها لفحص واختبار كل عنصر في الراوتر سطر بسطر مع توضيح الناتج المتوقع:</p>
+<h3>3.1 المجموعة 1: أوامر الاتصال وفحص حالة نظام الراوتر والعتاد</h3>
+<h4>1. تسجيل الدخول عبر SSH إلى الراوتر:</h4>
+<pre class=""><code>ssh root@192.168.1.1
+# أو إذا كان الراوتر على عنوان شبكة مختلف مثل شبكة الاختبار:
+ssh root@192.168.50.1</code></pre>
+<h4>2. فحص إصدار نظام OpenWrt والنواة (Kernel):</h4>
+<pre class=""><code>uname -a
+cat /etc/openwrt_release</code></pre>
+<p>*الناتج المتوقع:*</p>
+<pre class=""><code>DISTRIB_ID=&#x27;OpenWrt&#x27;
+DISTRIB_RELEASE=&#x27;23.05.x&#x27; (أو 22.03.x)
+Linux OpenWrt 5.15.x ...</code></pre>
+<h4>3. فحص استهلاك الذاكرة العشوائية (RAM):</h4>
+<pre class=""><code>free -m</code></pre>
+<p>*الناتج المتوقع:* وجود ذاكرة كافية شاغرة (المشروع مصمم ليعمل في حدود أقل من 8 ميجابايت إضافية).</p>
+<h4>4. فحص المساحة التخزينية في ذاكرة الفلاش والـ RAM:</h4>
+<pre class=""><code>df -h</code></pre>
+<p>*التحقق:* تأكد أن <code>/tmp</code> (الذي نستخدمه للسجلات والحالات المؤقتة) موجود على <code>tmpfs</code> لحماية ذاكرة الفلاش من التلف.</p>
+<hr>
+<h3>3.2 المجموعة 2: فحص الحزم والخدمات المثبتة (Dependencies &amp; Packages)</h3>
+<h4>1. التحقق من تثبيت البايثون الأساسي:</h4>
+<pre class=""><code>python3 --version
+which python3</code></pre>
+<p>*الناتج المتوقع:* <code>Python 3.9.x</code> أو أحدث في المسار <code>/usr/bin/python3</code>.</p>
+<h4>2. التحقق من تثبيت أداة مراقبة الباندويث <code>nlbwmon</code>:</h4>
+<pre class=""><code>which nlbwmon
+which nlbw</code></pre>
+<p>*الناتج المتوقع:* <code>/usr/sbin/nlbwmon</code> و <code>/usr/sbin/nlbw</code>.</p>
+<h4>3. التحقق من تثبيت الجدار الناري الحديث <code>nftables</code>:</h4>
+<pre class=""><code>nft --version
+which nft</code></pre>
+<p>*الناتج المتوقع:* <code>nftables v1.0.x</code> أو <code>v1.1.x</code>.</p>
+<h4>4. أمر تثبيت أي حزمة ناقصة (في حال عدم وجودها):</h4>
+<pre class=""><code>opkg update
+opkg install python3-base nlbwmon nftables</code></pre>
+<hr>
+<h3>3.3 المجموعة 3: فحص مراقبة استهلاك الباندويث (nlbwmon &amp; ubus)</h3>
+<h4>1. فحص تشغيل خدمة nlbwmon:</h4>
+<pre class=""><code>/etc/init.d/nlbwmon status
+ps | grep nlbwmon</code></pre>
+<p>*الناتج المتوقع:* ظهور معرّف العملية (PID) وأن الخدمة في وضع <code>running</code>.</p>
+<h4>2. فحص تسجيل nlbwmon في ناقل النظام ubus:</h4>
+<pre class=""><code>ubus list | grep nlbwmon</code></pre>
+<p>*الناتج المتوقع:* ظهور <code>nlbwmon</code>.</p>
+<h4>3. جلب بيانات الاستهلاك الحالية بتنسيق JSON مباشرة من ubus:</h4>
+<pre class=""><code>ubus call nlbwmon query
+# أو لعرض الحقول المتاحة:
+ubus -v list nlbwmon</code></pre>
+<p>*الناتج المتوقع:* كائن JSON يحتوي على مصفوفة الأعمدة <code>columns</code> والسجلات <code>rows</code> لكل عنوان MAC واستهلاك التحميل (rx_bytes) والرفع (tx_bytes).</p>
+<h4>4. الاستعلام عن الاستهلاك باستخدام أداة سطر الأوامر <code>nlbw</code>:</h4>
+<pre class=""><code># عرض الاستهلاك الحالي بتنسيق جدول مقروء:
+nlbw -c display
+
+# عرض الاستهلاك بتنسيق JSON مفصل:
+nlbw -c json</code></pre>
+<h4>5. إعادة تشغيل أو تنظيف قاعدة بيانات nlbwmon إذا لزم الأمر:</h4>
+<pre class=""><code>/etc/init.d/nlbwmon restart</code></pre>
+<hr>
+<h3>3.4 المجموعة 4: فحص جدول الأجهزة المتصلة وعناوين الـ MAC و DHCP</h3>
+<h4>1. فحص جدول توزيع الآيبيهات النشطة (DHCP Leases):</h4>
+<pre class=""><code>cat /tmp/dhcp.leases</code></pre>
+<p>*الناتج المتوقع:* قائمة تحتوي على (وقت انتهاء الحجز، عنوان الـ MAC، عنوان الـ IP، اسم الجهاز Hostname).</p>
+<h4>2. فحص جدول ARP في النواة (Kernel ARP Cache):</h4>
+<pre class=""><code>cat /proc/net/arp</code></pre>
+<p>*الناتج المتوقع:* قائمة بالأجهزة المكتشفة على مستوى الطبقة الثانية في الواجهة <code>br-lan</code>.</p>
+<h4>3. فحص أسماء وعناوين واجهات الشبكة في الراوتر:</h4>
+<pre class=""><code>ip -br addr
+ip route show</code></pre>
+<p>*التحقق:* التأكد من وجود الواجهة المحلية <code>br-lan</code> وعنوانها (عادة <code>192.168.1.1</code> أو <code>192.168.50.1</code>).</p>
+<hr>
+<h3>3.5 المجموعة 5: فحص الجدار الناري وجداول nftables بدقة</h3>
+<h4>1. فحص جميع الجداول النشطة في الجدار الناري:</h4>
+<pre class=""><code>nft list tables</code></pre>
+<p>*الناتج المتوقع:* ظهور الجداول الأساسية لنظام OpenWrt مثل <code>table inet fw4</code>، وظهور الجدول المخصص لنظام الكوتا:</p>
+<pre class=""><code>table inet fw4
+table inet quota_manager   &lt;-- (أو quota_enforcement)</code></pre>
+<h4>2. استعراض قواعد جدول الكوتا بالكامل:</h4>
+<pre class=""><code>nft list table inet quota_manager
+# أو إذا تم تفعيله باسم quota_enforcement:
+nft list table inet quota_enforcement</code></pre>
+<p>*الناتج المتوقع:*</p>
+<pre class=""><code>table inet quota_manager {
+    set blocked_devices {
+        type ether_addr
+        flags interval
+    }
+
+    chain forward_quota {
+        type filter hook forward priority -5; policy accept;
+        ether saddr @blocked_devices counter drop
+        ether daddr @blocked_devices counter drop
+    }
+}</code></pre>
+<h4>3. فحص قائمة الأجهزة المحظورة حالياً (Blocked MACs):</h4>
+<pre class=""><code>nft list set inet quota_manager blocked_devices
+# أو في جدول enforcement:
+nft list set inet quota_enforcement blocked_macs</code></pre>
+<p>*الناتج:* عرض كل عناوين الـ MAC المحظورة داخل الحاصرتين <code>{ ... }</code>.</p>
+<h4>4. تجربة يدوية لإضافة جهاز للاختبار (Manual Block Test):</h4>
+<pre class=""><code># إضافة عنوان MAC تجريبي:
+nft add element inet quota_manager blocked_devices &#x27;{ 52:54:00:aa:bb:cc }&#x27;
+
+# التحقق من إضافته:
+nft list set inet quota_manager blocked_devices | grep -i &quot;52:54:00:aa:bb:cc&quot;
+
+# حذفه وفك الحظر عنه:
+nft delete element inet quota_manager blocked_devices &#x27;{ 52:54:00:aa:bb:cc }&#x27;</code></pre>
+<h4>5. التأكد من عدادات الحزم المسقطة (Drop Counters):</h4>
+<pre class=""><code>nft list chain inet quota_manager forward_quota</code></pre>
+<p>*الناتج:* رؤية عدد الحزم (packets) والبايتات (bytes) التي تم حظرها وإسقاطها بواسطة القاعدة.</p>
+<hr>
+<h3>3.6 المجموعة 6: فحص سكريبتات وخدمات البايثون في الراوتر</h3>
+<h4>1. فحص ملفات المشروع في مجلد التثبيت داخل الراوتر:</h4>
+<pre class=""><code>ls -la /root/openwrt-wifi-quota-manager/openwrt/
+ls -la /root/openwrt-wifi-quota-manager/openwrt/scripts/</code></pre>
+<p>*الملفات الأساسية التي يجب أن تجدها:*</p>
+<ul><li><code>scripts/usage_manager.py</code></li></ul>
+<ul><li><code>scripts/device_manager.py</code></li></ul>
+<ul><li><code>scripts/check_quota.py</code></li></ul>
+<ul><li><code>api/api_usage.py</code></li></ul>
+<ul><li><code>services/quota-manager.init</code></li></ul>
+<ul><li><code>config/devices.json</code></li></ul>
+<h4>2. فحص حالة خدمة البايثون المشرفة بواسطة <code>procd</code>:</h4>
+<pre class=""><code>/etc/init.d/quota-manager status
+ps | grep api_usage.py</code></pre>
+<p>*الناتج المتوقع:* ظهور عملية البايثون نشطة (running) مع رقم الـ PID.</p>
+<h4>3. تشغيل فحص الكوتا يدوياً وتتبع المخرجات في الترمنل:</h4>
+<pre class=""><code>python3 /root/openwrt-wifi-quota-manager/openwrt/scripts/check_quota.py</code></pre>
+<p>*الناتج المتوقع:* تقرير فوري يوضح فحص كل جهاز مسجل، استهلاكه الحالي، النسبة المئوية للكوتا، والإجراء المتخذ (PASS / WARNING / BLOCKED).</p>
+<h4>4. فحص الجدولة التلقائية في Crontab:</h4>
+<pre class=""><code>cat /etc/crontabs/root</code></pre>
+<p>*الناتج المتوقع:*</p>
+<pre class=""><code>* * * * * python3 /root/openwrt-wifi-quota-manager/openwrt/scripts/check_quota.py</code></pre>
+<h4>5. تشغيل المحاكي لاختبار كامل السيناريوهات دون الحاجة لأجهزة حقيقية:</h4>
+<pre class=""><code>python3 /root/openwrt-wifi-quota-manager/openwrt/scripts/simulate.py</code></pre>
+<p>*الناتج:* تشغيل دورة تجريبية من 4 مراحل (اكتشاف جهاز -&gt; استهلاك خفيف -&gt; تحذير عند 80% -&gt; استنفاد الكوتا والحظر عند 100%).</p>
+<hr>
+<h3>3.7 المجموعة 7: فحص واختبار REST API المحلي في الراوتر (Port 8080)</h3>
+<h4>1. فحص جاهزية نقطة الـ Health:</h4>
+<pre class=""><code>curl -i http://127.0.0.1:8080/health</code></pre>
+<p>*الناتج المتوقع (HTTP 200 OK):*</p>
+<pre class=""><code>{
+  &quot;status&quot;: &quot;ok&quot;,
+  &quot;service&quot;: &quot;OpenWrt Wi-Fi Quota Manager API&quot;,
+  &quot;version&quot;: &quot;1.0.0&quot;
+}</code></pre>
+<h4>2. جلب قائمة الأجهزة المتصلة والمستهلكة:</h4>
+<pre class=""><code>curl -s -H &quot;Authorization: Bearer openwrt-secret-token-2026&quot; http://127.0.0.1:8080/devices | jsonfilter -e &#x27;@&#x27; 2&gt;/dev/null || curl -s http://127.0.0.1:8080/devices</code></pre>
+<h4>3. جلب تقرير الاستهلاك العام:</h4>
+<pre class=""><code>curl -s http://127.0.0.1:8080/reports</code></pre>
+<h4>4. إضافة أو تحديث جهاز وتعيين كوتا 5 جيجابايت له:</h4>
+<pre class=""><code>curl -s -X POST http://127.0.0.1:8080/devices \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#x27;{&quot;mac&quot;: &quot;52:54:00:12:34:56&quot;, &quot;name&quot;: &quot;Phone-Ibrahim&quot;, &quot;quota_gb&quot;: 5.0, &quot;is_active&quot;: true}&#x27;</code></pre>
+<h4>5. فحص قائمة الأجهزة المحظورة عبر الـ API:</h4>
+<pre class=""><code>curl -s http://127.0.0.1:8080/blocked</code></pre>
+<hr>
+<h3>3.8 المجموعة 8: فحص سجلات النظام (Syslog &amp; Quota Logs)</h3>
+<h4>1. قراءة سجلات نظام الكوتا المباشرة في RAM:</h4>
+<pre class=""><code>cat /var/log/quota_manager.log
+# أو متابعة السجلات لحظة بلحظة:
+tail -f /var/log/quota_manager.log</code></pre>
+<h4>2. فحص سجلات نظام OpenWrt العامة (logread):</h4>
+<pre class=""><code>logread | grep -i quota
+logread | grep -i nlbwmon</code></pre>
+<h4>3. فحص ملف حالة التحذيرات المخزن مؤقتاً:</h4>
+<pre class=""><code>cat /tmp/quota_warning_state.json 2&gt;/dev/null || echo &quot;No active warnings yet&quot;</code></pre>
+<hr>
+<h2>4. أكواد وأوامر فحص الكنترولر المركزي (OpenWrt Controller - Port 3000/3001)</h2>
+<p>إذا كنت تقوم بتشغيل خادم الكنترولر المركزي (<code>openwrt-controller</code>) على جهاز السيرفر أو جهاز التطوير، فإليك أوامر الفحص الدقيقة:</p>
+<h3>4.1 فحص الـ Health والـ Readiness</h3>
+<pre class=""><code># فحص الحالة العامة
+curl -s http://127.0.0.1:3000/api/health
+
+# فحص Liveness Probe (للتأكد أن الخدمة حية):
+curl -s http://127.0.0.1:3000/health/live
+# الناتج المتوقع: {&quot;status&quot;:&quot;alive&quot;,&quot;timestamp&quot;:&quot;...&quot;}
+
+# فحص Readiness Probe (للتأكد من جاهزية الاتصال بالراوتر والتخزين):
+curl -s http://127.0.0.1:3000/health/ready
+# الناتج المتوقع: {&quot;status&quot;:&quot;ready&quot;,&quot;ready&quot;:true,&quot;checks&quot;:{...}}</code></pre>
+<hr>
+<h3>4.2 فحص مقاييس الأداء والمراقبة (Prometheus &amp; JSON Metrics)</h3>
+<pre class=""><code># جلب مقاييس بروميثيوس بصيغة النص القياسية:
+curl -s http://127.0.0.1:3000/metrics | grep &quot;http_requests_total&quot;
+
+# جلب تقرير المقاييس المصنف بتنسيق JSON:
+curl -s http://127.0.0.1:3000/api/metrics
+
+# فحص التقرير التشغيلي الكامل وتيليمتري الكنترولر:
+curl -s http://127.0.0.1:3000/api/operations/status</code></pre>
+<hr>
+<h3>4.3 فحص وإدارة الكوتا والأجهزة عبر API الكنترولر</h3>
+<pre class=""><code># عرض كوتا جميع الأجهزة وحالة الاستهلاك الحالية:
+curl -s http://127.0.0.1:3000/api/quotas
+
+# عرض حالة مراقب الكوتا الدوري (Quota Enforcement Monitor):
+curl -s http://127.0.0.1:3000/api/quota-enforcement/status
+
+# عرض الأجهزة المحظورة حالياً في الجدار الناري:
+curl -s http://127.0.0.1:3000/api/firewall/blocked
+
+# اختبار محاولة حظر عنوان الـ MAC الخاص بالراوتر (يجب أن يفشل تلقائياً للأمان):
+curl -s -X POST http://127.0.0.1:3000/api/firewall/block \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#x27;{&quot;mac&quot;: &quot;52:54:00:CF:15:77&quot;}&#x27;
+# الناتج المتوقع: رفض العملية بخطأ InfrastructureDeviceError لمنع انقطاع الراوتر</code></pre>
+<hr>
+<h3>4.4 استخدام أداة الـ CLI الإدارية (<code>wifi-controller</code>)</h3>
+<p>توفر الأداة المدمجة طريقة سريعة ومباشرة للتحكم من سطر الأوامر دون كتابة أوامر curl طويلة:</p>
+<pre class=""><code># التوجه لمجلد الكنترولر:
+cd &quot;openwrt-controller&quot;
+
+# عرض المساعدة والأوامر المتاحة:
+./bin/wifi-controller.js --help
+
+# فحص حالة النظام والاتصال:
+./bin/wifi-controller.js status
+
+# عرض قائمة الأجهزة واستهلاكها:
+./bin/wifi-controller.js devices
+
+# عرض الأجهزة المحظورة:
+./bin/wifi-controller.js blocked
+
+# حظر جهاز يدوياً بواسطة الـ MAC:
+./bin/wifi-controller.js block 52:54:00:AA:BB:CC --reason &quot;Admin policy&quot;
+
+# فك الحظر عن جهاز:
+./bin/wifi-controller.js unblock 52:54:00:AA:BB:CC
+
+# تعديل كوتا جهاز إلى 10 جيجابايت مع تصفير الاستهلاك القديم:
+./bin/wifi-controller.js quota set 52:54:00:12:34:56 --bytes 10737418240 --reset-usage</code></pre>
+<hr>
+<h2>5. أوامر تشغيل الاختبارات الآلية الشاملة (Automated Test Suites)</h2>
+<p>للتأكد من سلامة النظام 100%، يمكنك تنفيذ الاختبارات الآلية المدمجة في المشروع بضغطة زر:</p>
+<h3>1. تشغيل الفحص الآلي الشامل لدمج الراوتر (8 مراحل كاملة):</h3>
+<p>يختبر هذا السكريبت: الاتصال، عزل الجداول، عمل الكنترولر، محاكاة استنفاد الكوتا، حذف الجدول يدوياً واستعادته تلقائياً، أمان حماية الماك الخاص بالراوتر، وفصل الإنترنت عن الشبكة الداخلية:</p>
+<pre class=""><code>cd &quot;/home/ibrahim-elshishtawy/flutter project/openwrt-wifi-quota-manager&quot;
+./verify-openwrt-integration.sh</code></pre>
+<p>*الناتج النهائي المتوقع:*</p>
+<pre class=""><code>========================================================================
+  Verification Summary
+========================================================================
+Tests Passed: 18
+Tests Failed: 0
+
+🎉 ALL INTEGRATION HARDENING &amp; RECOVERY CHECKS PASSED!</code></pre>
+<hr>
+<h3>2. تشغيل اختبارات الـ Unit Tests للكنترولر (31 جناح اختبار كامل):</h3>
+<pre class=""><code>cd &quot;openwrt-controller&quot;
+npm test</code></pre>
+<p>*الناتج المتوقع:* نجاح جميع أجنحة الاختبارات بنسبة 100% (31 Passed).</p>
+<hr>
+<h3>3. تشغيل اختبارات بايثون على الراوتر (66 اختبار):</h3>
+<pre class=""><code>cd &quot;openwrt&quot;
+python3 -m unittest discover -s tests -p &quot;test_*.py&quot;</code></pre>
+<p>*الناتج المتوقع:*</p>
+<pre class=""><code>Ran 66 tests in 0.817s
+OK</code></pre>
+<hr>
+<h2>6. دليل الصيانة السريعة والتعامل مع الطوارئ (Troubleshooting &amp; Disaster Recovery)</h2>
+<table>
+<tr>
+<th>العَرَض أو المشكلة</th>
+<th>السبب المحتمل</th>
+<th>أمر الحل السريع بالترمنل</th>
+</tr>
+<tr>
+<td><strong>تعذر الوصول للراوتر عبر SSH</strong></td>
+<td>الشبكة غير متصلة أو تم تغيير الآيبي</td>
+<td>افحص الاتصال: <code>ping 192.168.1.1</code>&lt;br&gt;تأكد من عنوان جهازك: <code>ip route show</code></td>
+</tr>
+<tr>
+<td><strong>استهلاك الأجهزة يظهر صفر دائماً (0 MB)</strong></td>
+<td>خدمة <code>nlbwmon</code> متوقفة أو لم تُنشئ قاعدة بياناتها</td>
+<td>قم بإعادة تشغيلها: <code>/etc/init.d/nlbwmon restart</code>&lt;br&gt;وافحص جمع البيانات: <code>nlbw -c json</code></td>
+</tr>
+<tr>
+<td><strong>الأجهزة المستنفذة للكوتا لا يتم حظرها</strong></td>
+<td>جدول <code>nftables</code> غير محمل في النواة</td>
+<td>أعد تحميل القواعد فوراً:&lt;br&gt;<code>nft -f /root/openwrt-wifi-quota-manager/openwrt/nftables/rules.nft</code>&lt;br&gt;وتأكد من الـ set:&lt;br&gt;<code>nft list set inet quota_manager blocked_devices</code></td>
+</tr>
+<tr>
+<td><strong>خادم API المحلي (8080) متوقف</strong></td>
+<td>تعطل خدمة البايثون في الراوتر</td>
+<td>أعد تشغيل الخدمة:&lt;br&gt;<code>/etc/init.d/quota-manager restart</code>&lt;br&gt;واقرأ السجل:&lt;br&gt;<code>tail -n 20 /var/log/quota_manager.log</code></td>
+</tr>
+<tr>
+<td><strong>فقدان الجداول عند إعادة تشغيل الراوتر (Reboot)</strong></td>
+<td>لم يتم تفعيل خدمة التشغيل التلقائي</td>
+<td>فعّل الخدمة لتبدأ مع الإقلاع:&lt;br&gt;<code>/etc/init.d/quota-manager enable</code>&lt;br&gt;<code>/etc/init.d/nlbwmon enable</code></td>
+</tr>
+<tr>
+<td><strong>الكنترولر في حالة Circuit Breaker OPEN</strong></td>
+<td>الراوتر كان مغلقاً أو SSH معطل مؤقتاً</td>
+<td>بعد عودة الراوتر للعمل، سيعود الكنترولر تلقائياً إلى وضع <code>CLOSED</code> خلال 10 ثوانٍ بمجرد نجاح مسبار الفحص.</td>
+</tr>
+<tr>
+<td><strong>فك الحظر يدوياً عن جهاز في حالة طوارئ</strong></td>
+<td>رغبة المدير في فك الحظر فوراً</td>
+<td>على الراوتر مباشرة:&lt;br&gt;<code>nft delete element inet quota_manager blocked_devices &#x27;{ &lt;MAC&gt; }&#x27;</code>&lt;br&gt;أو عبر الكنترولر:&lt;br&gt;<code>./bin/wifi-controller.js unblock &lt;MAC&gt;</code></td>
+</tr>
+</table>
+<hr>
+<blockquote>💡 <strong>ملاحظة للمطور والمدير</strong>: تم حفظ هذا التوثيق ليكون مرجعاً تقنياً وهندسياً دائماً، ويمكن طباعته أو تصديره إلى ملفات Word أو PDF ومشاركته مع فريق العمل.</blockquote>
+</body>
+</html>

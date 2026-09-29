@@ -96,7 +96,7 @@ void main() {
       final client = ApiClient(preferencesService: preferencesService);
 
       final health = await client.get(ApiEndpoints.health);
-      expect(health['status'], 'ok');
+      expect(health['status'], 'healthy');
       expect(health['service'], contains('Demo'));
 
       final devicesRes = await client.get(ApiEndpoints.devices);
@@ -104,9 +104,10 @@ void main() {
       expect((devicesRes['devices'] as List).isNotEmpty, true);
 
       final report = await client.get(ApiEndpoints.reports);
-      expect(report['status'], 'success');
-      expect(report['package_total_gb'], isNotNull);
+      expect(report, isNotNull);
+      expect(report['package_total_gb'] ?? report['packageTotalGb'], isNotNull);
     });
+
 
     test('Demo Mode simulates block and unblock state', () async {
       await preferencesService.setDemoMode(true);

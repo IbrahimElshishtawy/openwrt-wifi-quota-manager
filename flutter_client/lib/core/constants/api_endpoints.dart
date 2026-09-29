@@ -1,23 +1,40 @@
 class ApiEndpoints {
   ApiEndpoints._();
 
-  static const String defaultRouterIp = '192.168.1.1';
-  static const int defaultRouterPort = 8080;
-  static const String defaultApiKey = 'openwrt-secret-token-2026';
+  static const String defaultRouterIp = '127.0.0.1';
+  static const int defaultRouterPort = 3050;
+  static const String defaultApiKey = '';
   static const String defaultProtocol = 'http';
   static const String defaultUsername = 'root';
 
-  // REST API Endpoints defined in openwrt/api/README.md
-  static const String health = '/health';
-  static const String devices = '/devices';
-  static const String quota = '/quota';
-  static const String reports = '/reports';
-  static const String package = '/package';
-  static const String usage = '/usage';
-  static const String blocked = '/blocked';
+  // Controller API Endpoints
+  static const String health = '/api/health';
+  static const String healthLive = '/api/health/live';
+  static const String healthReady = '/api/health/ready';
+  static const String operationsStatus = '/api/operations/status';
+  static const String devices = '/api/devices';
+  static const String quotas = '/api/quotas';
+  static const String usage = '/api/usage';
+  static const String blocks = '/api/blocks';
+  static const String quotaEnforcementStatus = '/api/quota-enforcement/status';
+  static const String quotaEnforcementSync = '/api/quota-enforcement/sync';
+  static const String metrics = '/api/metrics';
+
+  // Action endpoints
   static const String block = '/block';
   static const String unblock = '/unblock';
-  static const String reset = '/reset';
+  static const String quota = '/api/quotas';
+  static const String reset = '/api/quotas/reset';
+  static const String reports = '/api/usage/reports';
+
+  // Legacy & Compatibility Aliases
+  static const String legacyDevices = '/devices';
+  static const String legacyReports = '/reports';
+  static const String legacyUsage = '/usage';
+  static const String legacyBlocked = '/blocked';
+  static const String legacyBlock = '/block';
+  static const String legacyUnblock = '/unblock';
+  static const String legacyQuota = '/quota';
 
   // LuCI RPC / ubus Endpoints
   static const String luciAuth = '/cgi-bin/luci/rpc/auth';
