@@ -69,17 +69,21 @@ export class NftablesSafetyGuard {
       }
     }
 
-    // If command invokes nft, ensure it is scoped to quota_enforcement or is read-only list tables
-    if (trimmed.startsWith('nft') || trimmed.includes('&& nft') || trimmed.includes('; nft')) {
-      if (trimmed === 'nft list tables' || trimmed === 'nft -j list tables') {
-        return; // Safe read-only inspection
-      }
+    // Only nftables commands are permitted
+    if (!trimmed.startsWith('nft')) {
+      throw new ForbiddenFirewallOperationError(
+        `Command rejected by safety guard: only nftables commands are permitted ("${trimmed}")`
+      );
+    }
 
-      if (!trimmed.includes(NftablesSafetyGuard.ALLOWED_TABLE)) {
-        throw new ForbiddenFirewallOperationError(
-          `Command rejected by safety guard: nftables operation must target table "${NftablesSafetyGuard.ALLOWED_TABLE}"`
-        );
-      }
+    if (trimmed === 'nft list tables' || trimmed === 'nft -j list tables') {
+      return; // Safe read-only inspection
+    }
+
+    if (!trimmed.includes(NftablesSafetyGuard.ALLOWED_TABLE)) {
+      throw new ForbiddenFirewallOperationError(
+        `Command rejected by safety guard: nftables operation must target table "${NftablesSafetyGuard.ALLOWED_TABLE}"`
+      );
     }
   }
 }

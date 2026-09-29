@@ -72,7 +72,7 @@ export function createAuthHook(options: AuthOptions = {}): onRequestHookHandler 
     options.enabled ?? (env.NODE_ENV === 'production' || Boolean(env.API_AUTH_TOKEN ?? env.ADMIN_API_TOKEN));
   const expectedToken = options.token ?? env.API_AUTH_TOKEN ?? env.ADMIN_API_TOKEN;
   const exemptRoutes = new Set(options.exemptRoutes ?? Array.from(DEFAULT_EXEMPT_ROUTES));
-  const protectReads = options.protectReads ?? false;
+  const protectReads = options.protectReads ?? (env.API_PROTECT_READS || false);
 
   return async (request: FastifyRequest, reply: FastifyReply) => {
     // If auth is disabled (e.g. standard local development or test without token configured), allow

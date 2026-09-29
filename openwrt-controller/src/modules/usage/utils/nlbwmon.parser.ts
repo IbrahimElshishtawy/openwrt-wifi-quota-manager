@@ -1,3 +1,4 @@
+import { isIPv4 } from 'node:net';
 import {
   normalizeMac,
   compareIps,
@@ -91,7 +92,7 @@ export function parseAndAggregateNlbwOutput(rawOutput: string): DeviceUsage[] {
     }
 
     const ip = rawIp.trim();
-    if (!ip || ip === '0.0.0.0') {
+    if (!ip || !isIPv4(ip) || ip === '0.0.0.0') {
       continue;
     }
 

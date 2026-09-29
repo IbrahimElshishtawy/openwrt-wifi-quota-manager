@@ -294,12 +294,8 @@ export class DevicesService {
     object: string,
     method: string,
     params: Record<string, unknown> = {}
-  ): Promise<T | null> {
-    try {
-      return await this.ubus.call<T>(object, method, params);
-    } catch {
-      return null;
-    }
+  ): Promise<T> {
+    return await this.ubus.call<T>(object, method, params);
   }
 
   private captureError(err: unknown, setter: (e: unknown) => void): void {

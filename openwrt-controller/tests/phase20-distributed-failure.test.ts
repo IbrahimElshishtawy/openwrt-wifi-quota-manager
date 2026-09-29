@@ -12,15 +12,15 @@ import type { INftablesClient } from '../src/modules/firewall/NftablesClient.js'
 
 class FailingNftablesClient implements INftablesClient {
   public blocked = new Set<string>();
-  public failNextWithNetworkError = false;
+  public failureCount = 0;
   public operationExecutedBeforeFail = false;
 
   public async ensureRuleset(): Promise<void> {}
 
   public async addBlockedMac(mac: string): Promise<void> {
     const norm = mac.toUpperCase();
-    if (this.failNextWithNetworkError) {
-      this.failNextWithNetworkError = false;
+    if (this.failureCount > 0) {
+      this.failureCount--;
       if (this.operationExecutedBeforeFail) {
         this.blocked.add(norm); // Operation succeeded on router, but network dropped before response
       }
@@ -31,8 +31,8 @@ class FailingNftablesClient implements INftablesClient {
 
   public async deleteBlockedMac(mac: string): Promise<void> {
     const norm = mac.toUpperCase();
-    if (this.failNextWithNetworkError) {
-      this.failNextWithNetworkError = false;
+    if (this.failureCount > 0) {
+      this.failureCount--;
       if (this.operationExecutedBeforeFail) {
         this.blocked.delete(norm);
       }
@@ -97,6 +97,7 @@ function makeEnv(mac: string) {
 async function run() {
   console.log('🧪 Starting Stage 4: Distributed Operation Failure & Idempotency Testing...');
   const testDir = path.resolve(process.cwd(), 'scratch/dist-failure-test-data');
+  await fs.promises.rm(testDir, { recursive: true, force: true }).catch(() => {});
   await fs.promises.mkdir(testDir, { recursive: true });
 
   const TEST_MAC = '02:00:DD:FF:00:01';
@@ -115,7 +116,7 @@ async function run() {
     const fwService = new FirewallService(mockNft, devicesService, fwRepo);
 
     // Set failure injection: command executes on router, but network fails before controller gets ACK
-    mockNft.failNextWithNetworkError = true;
+    mockNft.failureCount = 1;
     mockNft.operationExecutedBeforeFail = true;
 
     await assert.rejects(
@@ -145,7 +146,7 @@ async function run() {
     const mockNft = new FailingNftablesClient();
     const fwService = new FirewallService(mockNft, devicesService, fwRepo);
 
-    mockNft.failNextWithNetworkError = true;
+    mockNft.failureCount = 1;
     mockNft.operationExecutedBeforeFail = false;
 
     await assert.rejects(
@@ -179,7 +180,7 @@ async function run() {
     assert.ok(mockNft.blocked.has(TEST_MAC));
 
     // Network drops during unblock
-    mockNft.failNextWithNetworkError = true;
+    mockNft.failureCount = 1;
     mockNft.operationExecutedBeforeFail = true; // Succeeded on router, ACK lost
 
     await assert.rejects(
@@ -216,8 +217,8 @@ async function run() {
     (monitor as any).quotaService = qService;
     (monitor as any).firewallService = fwService;
 
-    // First cycle: router network fails during block addition
-    mockNft.failNextWithNetworkError = true;
+    // First cycle: router network fails during block addition (exhausting all 3 retries)
+    mockNft.failureCount = 4;
     mockNft.operationExecutedBeforeFail = false;
 
     const cycle1 = await monitor.runCycle();

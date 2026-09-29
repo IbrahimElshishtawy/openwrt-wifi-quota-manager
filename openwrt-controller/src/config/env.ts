@@ -31,6 +31,10 @@ export const envSchema = z.object({
   // API Authentication Token (mandatory in production)
   API_AUTH_TOKEN: z.string().optional(),
   ADMIN_API_TOKEN: z.string().optional(), // Alias
+  API_PROTECT_READS: z
+    .enum(['true', 'false', '1', '0'])
+    .default('false')
+    .transform((val) => val === 'true' || val === '1'),
 
   // Rate Limiting configuration
   API_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
