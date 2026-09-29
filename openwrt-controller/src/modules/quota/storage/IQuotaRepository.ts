@@ -40,4 +40,5 @@ export interface IQuotaRepository {
   findById(mac: string): Promise<DeviceQuotaRecord | null>;
   findAll(): Promise<DeviceQuotaRecord[]>;
   save(record: DeviceQuotaRecord): Promise<void>;
+  saveAll?(records: DeviceQuotaRecord[]): Promise<void>;
 }

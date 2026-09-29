@@ -34,6 +34,29 @@ export {
 };
 export type { DeviceQuota, DeviceQuotaRecord, CreateQuotaDto, UpdateQuotaDto };
 
+class AsyncLock {
+  private activeLocks = new Map<string, Promise<void>>();
+
+  public async acquire<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.activeLocks.get(key) ?? Promise.resolve();
+    let release: () => void;
+    const next = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.activeLocks.set(key, prev.then(() => next));
+
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release!();
+      if (this.activeLocks.get(key) === next) {
+        this.activeLocks.delete(key);
+      }
+    }
+  }
+}
+
 /**
  * Production-quality Per-Device Quota Engine.
  * Responsibilities:
@@ -45,6 +68,8 @@ export type { DeviceQuota, DeviceQuotaRecord, CreateQuotaDto, UpdateQuotaDto };
  * - Ensure persistence across application restarts via the pluggable IQuotaRepository interface.
  */
 export class QuotaService {
+  private readonly deviceLock = new AsyncLock();
+
   constructor(
     private readonly repository: IQuotaRepository = quotaRepository,
     private readonly usage: UsageService = usageService,
@@ -70,36 +95,38 @@ export class QuotaService {
 
     const normMac = this.normalizeAndValidateMac(dto.mac);
 
-    // Ensure a quota does not already exist for this device
-    const existing = await this.repository.findById(normMac);
-    if (existing) {
-      throw new QuotaAlreadyExistsError(normMac);
-    }
+    return this.deviceLock.acquire(normMac, async () => {
+      // Ensure a quota does not already exist for this device
+      const existing = await this.repository.findById(normMac);
+      if (existing) {
+        throw new QuotaAlreadyExistsError(normMac);
+      }
 
-    // Verify MAC belongs to a discovered, real LAN client (excluding infrastructure)
-    await this.validateLanClient(normMac);
+      // Verify MAC belongs to a discovered, real LAN client (excluding infrastructure)
+      await this.validateLanClient(normMac);
 
-    // Fetch current usage to establish the baseline
-    const currentUsageList = await this.usage.getDeviceUsage();
-    const currentUsage = currentUsageList.find((u) => u.mac === normMac);
-    const baselineBytes = currentUsage ? currentUsage.totalBytes : 0;
+      // Fetch current usage to establish the baseline
+      const currentUsageList = await this.usage.getDeviceUsage();
+      const currentUsage = currentUsageList.find((u) => u.mac === normMac);
+      const baselineBytes = currentUsage ? currentUsage.totalBytes : 0;
 
-    const now = new Date().toISOString();
-    const record: DeviceQuotaRecord = {
-      mac: normMac,
-      quotaBytes: dto.quotaBytes,
-      lastSeenTotalBytes: baselineBytes,
-      accumulatedUsedBytes: 0,
-      usedBytes: 0,
-      remainingBytes: dto.quotaBytes,
-      percentage: 0,
-      status: 'active',
-      createdAt: now,
-      updatedAt: now,
-    };
+      const now = new Date().toISOString();
+      const record: DeviceQuotaRecord = {
+        mac: normMac,
+        quotaBytes: dto.quotaBytes,
+        lastSeenTotalBytes: baselineBytes,
+        accumulatedUsedBytes: 0,
+        usedBytes: 0,
+        remainingBytes: dto.quotaBytes,
+        percentage: 0,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      };
 
-    await this.repository.save(record);
-    return toDeviceQuota(record);
+      await this.repository.save(record);
+      return toDeviceQuota(record);
+    });
   }
 
   /**
@@ -117,8 +144,16 @@ export class QuotaService {
     const updatedQuotas: DeviceQuota[] = [];
     for (const record of records) {
       this.applyFreshUsage(record, freshUsageList);
-      await this.repository.save(record);
       updatedQuotas.push(toDeviceQuota(record));
+    }
+
+    // Batch persist all updated records in a single atomic I/O operation
+    if (typeof this.repository.saveAll === 'function') {
+      await this.repository.saveAll(records);
+    } else {
+      for (const record of records) {
+        await this.repository.save(record);
+      }
     }
 
     return updatedQuotas;
@@ -156,58 +191,61 @@ export class QuotaService {
    */
   public async updateQuota(rawMac: string, dto: UpdateQuotaDto): Promise<DeviceQuota> {
     const normMac = this.normalizeAndValidateMac(rawMac);
-    const record = await this.repository.findById(normMac);
 
-    if (!record) {
-      throw new QuotaNotFoundError(normMac);
-    }
+    return this.deviceLock.acquire(normMac, async () => {
+      const record = await this.repository.findById(normMac);
 
-    if (dto.quotaBytes !== undefined) {
-      if (
-        dto.quotaBytes <= 0 ||
-        !Number.isInteger(dto.quotaBytes) ||
-        !Number.isFinite(dto.quotaBytes) ||
-        dto.quotaBytes > Number.MAX_SAFE_INTEGER
-      ) {
-        throw new InvalidDeviceQuotaError(
-          `quotaBytes must be a positive finite integer between 1 and ${Number.MAX_SAFE_INTEGER}.`
-        );
+      if (!record) {
+        throw new QuotaNotFoundError(normMac);
       }
-      record.quotaBytes = dto.quotaBytes;
-    }
 
-    if (dto.usedBytes !== undefined) {
-      if (
-        dto.usedBytes < 0 ||
-        !Number.isInteger(dto.usedBytes) ||
-        !Number.isFinite(dto.usedBytes) ||
-        dto.usedBytes > Number.MAX_SAFE_INTEGER
-      ) {
-        throw new InvalidDeviceQuotaError(
-          `usedBytes must be a non-negative finite integer between 0 and ${Number.MAX_SAFE_INTEGER}.`
-        );
+      if (dto.quotaBytes !== undefined) {
+        if (
+          dto.quotaBytes <= 0 ||
+          !Number.isInteger(dto.quotaBytes) ||
+          !Number.isFinite(dto.quotaBytes) ||
+          dto.quotaBytes > Number.MAX_SAFE_INTEGER
+        ) {
+          throw new InvalidDeviceQuotaError(
+            `quotaBytes must be a positive finite integer between 1 and ${Number.MAX_SAFE_INTEGER}.`
+          );
+        }
+        record.quotaBytes = dto.quotaBytes;
       }
-      record.accumulatedUsedBytes = dto.usedBytes;
-      record.usedBytes = dto.usedBytes;
-    }
 
-    if (dto.resetUsage === true) {
-      // Explicit reset intended: re-capture current usage counter as new baseline
-      const freshUsageList = await this.usage.getDeviceUsage();
-      const currentUsage = freshUsageList.find((u) => u.mac === normMac);
-      record.lastSeenTotalBytes = currentUsage ? currentUsage.totalBytes : 0;
-      record.accumulatedUsedBytes = 0;
-      record.usedBytes = 0;
-    } else if (dto.usedBytes === undefined) {
-      // Synchronize with fresh telemetry without resetting accumulated usage
-      const freshUsageList = await this.usage.getDeviceUsage().catch(() => []);
-      this.applyFreshUsage(record, freshUsageList);
-    }
+      if (dto.usedBytes !== undefined) {
+        if (
+          dto.usedBytes < 0 ||
+          !Number.isInteger(dto.usedBytes) ||
+          !Number.isFinite(dto.usedBytes) ||
+          dto.usedBytes > Number.MAX_SAFE_INTEGER
+        ) {
+          throw new InvalidDeviceQuotaError(
+            `usedBytes must be a non-negative finite integer between 0 and ${Number.MAX_SAFE_INTEGER}.`
+          );
+        }
+        record.accumulatedUsedBytes = dto.usedBytes;
+        record.usedBytes = dto.usedBytes;
+      }
 
-    this.recalculateMetrics(record);
-    await this.repository.save(record);
+      if (dto.resetUsage === true) {
+        // Explicit reset intended: re-capture current usage counter as new baseline
+        const freshUsageList = await this.usage.getDeviceUsage();
+        const currentUsage = freshUsageList.find((u) => u.mac === normMac);
+        record.lastSeenTotalBytes = currentUsage ? currentUsage.totalBytes : 0;
+        record.accumulatedUsedBytes = 0;
+        record.usedBytes = 0;
+      } else if (dto.usedBytes === undefined) {
+        // Synchronize with fresh telemetry without resetting accumulated usage
+        const freshUsageList = await this.usage.getDeviceUsage().catch(() => []);
+        this.applyFreshUsage(record, freshUsageList);
+      }
 
-    return toDeviceQuota(record);
+      this.recalculateMetrics(record);
+      await this.repository.save(record);
+
+      return toDeviceQuota(record);
+    });
   }
 
   /**
@@ -215,13 +253,16 @@ export class QuotaService {
    */
   public async deleteQuota(rawMac: string): Promise<boolean> {
     const normMac = this.normalizeAndValidateMac(rawMac);
-    const record = await this.repository.findById(normMac);
 
-    if (!record) {
-      throw new QuotaNotFoundError(normMac);
-    }
+    return this.deviceLock.acquire(normMac, async () => {
+      const record = await this.repository.findById(normMac);
 
-    return this.repository.delete(normMac);
+      if (!record) {
+        throw new QuotaNotFoundError(normMac);
+      }
+
+      return this.repository.delete(normMac);
+    });
   }
 
   /**

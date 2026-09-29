@@ -1,3 +1,4 @@
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type {
   MetricName,
   MetricsSnapshot,
@@ -46,11 +47,18 @@ export class MetricsService {
   private readonly counters = new Map<string, number>();
   private readonly gauges = new Map<string, number>();
   private readonly histograms = new Map<string, HistogramState>();
+  private readonly eld?: ReturnType<typeof monitorEventLoopDelay>;
 
   // Label-keyed counters: Map<metricName, Map<labelKeyString, number>>
   private readonly labeledCounters = new Map<string, Map<string, { labels: MetricLabels; value: number }>>();
 
   constructor() {
+    try {
+      this.eld = monitorEventLoopDelay({ resolution: 20 });
+      this.eld.enable();
+    } catch {
+      // Fallback if environment doesn't allow event loop monitoring
+    }
     this.reset();
   }
 
@@ -274,6 +282,12 @@ export class MetricsService {
     addMetric('process_memory_heap_used_bytes', 'gauge', 'Heap memory used in bytes', mem.heapUsed);
     addMetric('process_memory_heap_total_bytes', 'gauge', 'Total heap memory in bytes', mem.heapTotal);
 
+    let lagMs = 0;
+    if (this.eld && Number.isFinite(this.eld.mean) && this.eld.mean > 0) {
+      lagMs = Math.round((this.eld.mean / 1_000_000) * 100) / 100;
+    }
+    addMetric('process_event_loop_lag_ms', 'gauge', 'Node.js Event Loop Lag in milliseconds', lagMs);
+
     // HTTP
     addMetric('http_active_requests', 'gauge', 'Currently active in-flight HTTP requests', Math.max(0, this.get('http_active_requests')));
     addMetric('http_requests_total', 'counter', 'Total incoming HTTP requests', this.get('http_requests_total'));
@@ -326,6 +340,14 @@ export class MetricsService {
     this.gauges.clear();
     this.histograms.clear();
     this.labeledCounters.clear();
+
+    if (this.eld) {
+      try {
+        this.eld.reset();
+      } catch {
+        // Safe ignore
+      }
+    }
 
     for (const metric of LEGACY_METRICS) {
       this.counters.set(metric, 0);

@@ -127,6 +127,15 @@ export class FileQuotaRepository implements IQuotaRepository {
     await this.persistToDisk();
   }
 
+  public async saveAll(records: DeviceQuotaRecord[]): Promise<void> {
+    if (records.length === 0) return;
+    const cache = await this.ensureInitialized();
+    for (const record of records) {
+      cache.set(record.mac, { ...record });
+    }
+    await this.persistToDisk();
+  }
+
   public async delete(mac: string): Promise<boolean> {
     const cache = await this.ensureInitialized();
     const existed = cache.delete(mac);

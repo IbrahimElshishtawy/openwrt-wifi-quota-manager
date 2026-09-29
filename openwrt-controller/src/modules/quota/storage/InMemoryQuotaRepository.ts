@@ -46,6 +46,12 @@ export class InMemoryQuotaRepository implements IQuotaRepository {
     this.records.set(record.mac, { ...record });
   }
 
+  public async saveAll(records: DeviceQuotaRecord[]): Promise<void> {
+    for (const record of records) {
+      this.records.set(record.mac, { ...record });
+    }
+  }
+
   public async delete(mac: string): Promise<boolean> {
     return this.records.delete(mac);
   }

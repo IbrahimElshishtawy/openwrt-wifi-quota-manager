@@ -23,6 +23,34 @@ fi
 
 # 1. Pre-validation of backup files
 echo "Validating backup integrity..."
+
+if [ -f "$RESTORE_SOURCE/metadata.json" ]; then
+    echo "Verifying SHA-256 checksums against metadata manifest..."
+    if ! node -e '
+    const fs = require("fs");
+    const crypto = require("crypto");
+    const src = process.argv[1];
+    const meta = JSON.parse(fs.readFileSync(src + "/metadata.json", "utf-8"));
+    for (const [file, info] of Object.entries(meta.files || {})) {
+      const fullPath = src + "/" + file;
+      if (!fs.existsSync(fullPath)) {
+        console.error(`Missing expected backup file: ${file}`);
+        process.exit(1);
+      }
+      const data = fs.readFileSync(fullPath);
+      const hash = crypto.createHash("sha256").update(data).digest("hex");
+      if (hash !== info.sha256) {
+        console.error(`Checksum mismatch for ${file}! Expected ${info.sha256}, got ${hash}`);
+        process.exit(1);
+      }
+    }
+    ' "$RESTORE_SOURCE" 2>/dev/null; then
+        echo "❌ Error: Backup failed checksum verification! Tampered or corrupted backup." >&2
+        exit 1
+    fi
+    echo "✅ SHA-256 checksum verification passed."
+fi
+
 if [ -f "$RESTORE_SOURCE/quotas.json" ]; then
     if ! node -e "JSON.parse(require('fs').readFileSync(process.argv[1]))" "$RESTORE_SOURCE/quotas.json" 2>/dev/null; then
         echo "❌ Error: Backup quotas.json is corrupt / invalid JSON! Restore aborted." >&2

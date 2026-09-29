@@ -33,7 +33,13 @@ export class NftablesClient implements INftablesClient {
   public static readonly SET_NAME = 'blocked_macs';
   public static readonly CHAIN_NAME = 'forward_block';
 
+  private rulesetVerified = false;
+
   constructor(private readonly ssh: ISshClient = sshClient) {}
+
+  public invalidateRulesetCache(): void {
+    this.rulesetVerified = false;
+  }
 
   /**
    * Strictly validates and normalizes a MAC address using NftablesSafetyGuard.
@@ -54,6 +60,14 @@ export class NftablesClient implements INftablesClient {
     } catch (err) {
       metricsService.increment('openwrt_nftables_failures_total', 1);
       metricsService.increment('firewall_operation_failures', 1);
+      // Invalidate cached ruleset if error indicates table or set missing
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (
+        errMsg.toLowerCase().includes('no such file') ||
+        errMsg.toLowerCase().includes('does not exist')
+      ) {
+        this.rulesetVerified = false;
+      }
       throw err;
     }
   }
@@ -65,8 +79,13 @@ export class NftablesClient implements INftablesClient {
    * - Never flushes or removes existing blocked MAC addresses.
    * - Never creates duplicate tables, chains, or drop rules.
    * - Safely provisions only missing structures.
+   * - Caches verification state to prevent high-frequency SSH connection storms.
    */
-  public async ensureRuleset(): Promise<void> {
+  public async ensureRuleset(force = false): Promise<void> {
+    if (this.rulesetVerified && !force) {
+      return;
+    }
+
     const table = NftablesClient.TABLE_NAME;
     const set = NftablesClient.SET_NAME;
     const chain = NftablesClient.CHAIN_NAME;
@@ -92,6 +111,7 @@ export class NftablesClient implements INftablesClient {
 
       try {
         await this.executeSafeNft(fullInitCmd);
+        this.rulesetVerified = true;
         return;
       } catch (err: unknown) {
         if (err instanceof ForbiddenFirewallOperationError) throw err;
@@ -144,6 +164,8 @@ export class NftablesClient implements INftablesClient {
       if (!chainContent.includes(`daddr @${set}`)) {
         await this.executeSafeNft(`nft add rule inet ${table} ${chain} ether daddr @${set} counter drop`);
       }
+
+      this.rulesetVerified = true;
     } catch (err: unknown) {
       if (err instanceof ForbiddenFirewallOperationError) throw err;
       throw new FirewallExecutionError(
