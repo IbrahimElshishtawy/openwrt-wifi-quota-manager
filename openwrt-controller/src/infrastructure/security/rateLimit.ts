@@ -15,7 +15,16 @@ interface ClientBucket {
 }
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const DEFAULT_EXEMPT_ROUTES = new Set(['/health', '/api/health']);
+const DEFAULT_EXEMPT_ROUTES = new Set([
+  '/health',
+  '/api/health',
+  '/health/live',
+  '/api/health/live',
+  '/health/ready',
+  '/api/health/ready',
+  '/metrics',
+  '/api/metrics',
+]);
 
 export class MemoryRateLimiter {
   private readonly clients = new Map<string, ClientBucket>();
@@ -140,12 +149,15 @@ export function createRateLimitHook(options: RateLimitOptions = {}): {
 
       return reply.status(429).send({
         statusCode: 429,
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many requests, please slow down and try again later',
         error: {
           code: 'RATE_LIMIT_EXCEEDED',
           message: 'Too many requests, please slow down and try again later',
           requestId: request.id,
         },
         success: false,
+        requestId: request.id,
       });
     }
   };

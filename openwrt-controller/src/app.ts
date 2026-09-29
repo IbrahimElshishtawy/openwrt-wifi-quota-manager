@@ -202,6 +202,28 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       });
     }
 
+    // 1b. Handle Fastify built-in schema validation errors
+    if (error.code === 'FST_ERR_VALIDATION' || (error.validation && error.validation.length > 0)) {
+      const statusCode = 400;
+      const clientMessage = error.message;
+      const errorObj: StandardErrorObject = {
+        code: 'VALIDATION_ERROR',
+        message: clientMessage,
+        requestId,
+        issues: error.validation,
+      };
+
+      return reply.status(statusCode).send({
+        statusCode,
+        error: errorObj,
+        message: clientMessage,
+        code: 'VALIDATION_ERROR',
+        success: false,
+        requestId,
+        issues: error.validation,
+      });
+    }
+
     // 2. Handle Oversized Body errors (FST_ERR_CTP_BODY_TOO_LARGE)
     if (error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
       const statusCode = 413;

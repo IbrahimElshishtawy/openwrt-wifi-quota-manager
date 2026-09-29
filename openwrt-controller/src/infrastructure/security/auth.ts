@@ -98,12 +98,15 @@ export function createAuthHook(options: AuthOptions = {}): onRequestHookHandler 
       request.log.error('API authentication is enabled but no API_AUTH_TOKEN is configured');
       return reply.status(500).send({
         statusCode: 500,
+        code: 'AUTH_MISCONFIGURED',
+        message: 'Server authentication misconfigured',
         error: {
           code: 'AUTH_MISCONFIGURED',
           message: 'Server authentication misconfigured',
           requestId: request.id,
         },
         success: false,
+        requestId: request.id,
       });
     }
 
@@ -112,12 +115,15 @@ export function createAuthHook(options: AuthOptions = {}): onRequestHookHandler 
     if (!providedToken) {
       return reply.status(401).send({
         statusCode: 401,
+        code: 'UNAUTHORIZED',
+        message: 'Missing authorization token. Provide via "Authorization: Bearer <TOKEN>" or "x-api-key" header.',
         error: {
           code: 'UNAUTHORIZED',
           message: 'Missing authorization token. Provide via "Authorization: Bearer <TOKEN>" or "x-api-key" header.',
           requestId: request.id,
         },
         success: false,
+        requestId: request.id,
       });
     }
 
@@ -133,12 +139,15 @@ export function createAuthHook(options: AuthOptions = {}): onRequestHookHandler 
 
       return reply.status(401).send({
         statusCode: 401,
+        code: 'UNAUTHORIZED',
+        message: 'Invalid API authorization token',
         error: {
           code: 'UNAUTHORIZED',
           message: 'Invalid API authorization token',
           requestId: request.id,
         },
         success: false,
+        requestId: request.id,
       });
     }
   };
