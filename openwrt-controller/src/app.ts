@@ -71,6 +71,7 @@ export interface AppOptions {
   rateLimitEnabled?: boolean | undefined;
   rateLimitMax?: number | undefined;
   rateLimitWindowMs?: number | undefined;
+  protectReads?: boolean | undefined;
 }
 
 const REQUEST_ID_REGEX = /^[a-zA-Z0-9_-]{8,64}$/;
@@ -167,6 +168,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     createAuthHook({
       enabled: options.authEnabled,
       token: options.apiToken,
+      protectReads: options.protectReads,
     })
   );
 
