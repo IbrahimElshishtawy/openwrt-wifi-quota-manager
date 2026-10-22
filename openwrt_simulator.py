@@ -153,19 +153,42 @@ class OpenWrtRouterSimulator:
         self.log_event(f"Loaded {len(self.devices)} simulated Wi-Fi devices into router memory.")
 
     def add_traffic(self, mac: str, dl_mb: float, ul_mb: float = 0.0):
-        """Inject instant traffic burst for a specific device."""
+        """Inject traffic burst for a specific device, strictly capped at quota limit."""
         mac = mac.upper()
         with self.lock:
             dev = self.devices.get(mac)
             if not dev:
                 return False, f"Device {mac} not found"
 
+            if dev["blocked"]:
+                self.log_event(f"⛔ Dropped packets: {dev['name']} is already BLOCKED by firewall!", "BLOCK")
+                return False, f"Device {dev['name']} is already blocked at firewall!"
+
             dl_bytes = dl_mb * (1024 ** 2)
             ul_bytes = ul_mb * (1024 ** 2)
-            dev["download_bytes"] += dl_bytes
-            dev["upload_bytes"] += ul_bytes
-            self._evaluate_quota(dev)
-        return True, "Traffic added"
+            attempted_bytes = dl_bytes + ul_bytes
+
+            quota_bytes = dev["quota_gb"] * (1024 ** 3)
+            current_total = dev["download_bytes"] + dev["upload_bytes"]
+            remaining_bytes = max(0.0, quota_bytes - current_total)
+
+            if attempted_bytes >= remaining_bytes:
+                # Quota reached during transfer! Allow only up to the limit then firewall drops the rest
+                dev["download_bytes"] += remaining_bytes
+                dev["download_speed"] = 0.0
+                dev["upload_speed"] = 0.0
+                dev["blocked"] = True
+                self.blocked_set.add(mac)
+                self.log_event(
+                    f"🚨 QUOTA LIMIT REACHED ({dev['quota_gb']:.1f} GB): {dev['name']} hit quota limit! Remaining {format_bytes(attempted_bytes - remaining_bytes)} dropped & device BLOCKED by firewall.",
+                    "BLOCK"
+                )
+                return True, f"Device reached quota limit ({dev['quota_gb']} GB) and was blocked!"
+            else:
+                dev["download_bytes"] += dl_bytes
+                dev["upload_bytes"] += ul_bytes
+                self._evaluate_quota(dev)
+                return True, "Traffic added"
 
     def set_quota(self, mac: str, quota_gb: float):
         mac = mac.upper()
@@ -186,6 +209,8 @@ class OpenWrtRouterSimulator:
                 return False, f"Device {mac} not found"
             dev["blocked"] = True
             dev["enabled"] = False
+            dev["download_speed"] = 0.0
+            dev["upload_speed"] = 0.0
             self.blocked_set.add(mac)
         self.log_event(f"Device {dev['name']} ({mac}) is BLOCKED at firewall [{reason}]", "BLOCK")
         return True, "Device blocked"
@@ -236,17 +261,19 @@ class OpenWrtRouterSimulator:
             dev["warning_95"] = True
             self.log_event(f"⛔ {dev['name']} reached 95% quota ({format_bytes(total_bytes)}/{dev['quota_gb']}GB)", "ALERT")
 
-        # Quota Exceeded -> Immediate Firewall Block
+        # Quota Exceeded -> Immediate Firewall Block & Traffic Cap
         if pct >= 100.0 and not dev["blocked"]:
             dev["blocked"] = True
+            dev["download_speed"] = 0.0
+            dev["upload_speed"] = 0.0
             self.blocked_set.add(mac)
             self.log_event(
-                f"🚨 QUOTA EXHAUSTED: {dev['name']} exceeded 100% ({format_bytes(total_bytes)}/{dev['quota_gb']}GB) -> BLOCKED by nftables!",
+                f"🚨 QUOTA EXHAUSTED: {dev['name']} reached 100% ({dev['quota_gb']:.1f} GB) -> BLOCKED by nftables firewall!",
                 "BLOCK"
             )
 
     def traffic_simulation_tick(self):
-        """Simulate real-world Wi-Fi background traffic growth."""
+        """Simulate real-world Wi-Fi background traffic growth capped strictly at quota."""
         import random
         with self.lock:
             if not self.traffic_active:
@@ -254,23 +281,44 @@ class OpenWrtRouterSimulator:
 
             for dev in self.devices.values():
                 if dev["blocked"]:
-                    # Blocked devices cannot transmit internet traffic
                     dev["download_speed"] = 0.0
                     dev["upload_speed"] = 0.0
                     continue
 
-                # Normal device activity: generate random browsing/streaming traffic
-                # e.g., between 50 KB/s and 1.5 MB/s
+                quota_bytes = dev["quota_gb"] * (1024 ** 3)
+                current_total = dev["download_bytes"] + dev["upload_bytes"]
+                remaining_bytes = max(0.0, quota_bytes - current_total)
+
+                if remaining_bytes <= 0:
+                    dev["download_speed"] = 0.0
+                    dev["upload_speed"] = 0.0
+                    dev["blocked"] = True
+                    self.blocked_set.add(dev["mac"])
+                    continue
+
+                # Normal background traffic
                 base_speed = random.uniform(150_000, 1_200_000) * self.speed_multiplier
                 dl_speed = base_speed * random.uniform(0.7, 1.3)
                 ul_speed = base_speed * random.uniform(0.05, 0.2)
+                tick_bytes = dl_speed + ul_speed
 
-                dev["download_speed"] = dl_speed
-                dev["upload_speed"] = ul_speed
-                dev["download_bytes"] += dl_speed
-                dev["upload_bytes"] += ul_speed
-
-                self._evaluate_quota(dev)
+                if tick_bytes >= remaining_bytes:
+                    # User hits the exact limit this second
+                    dev["download_bytes"] += remaining_bytes
+                    dev["download_speed"] = 0.0
+                    dev["upload_speed"] = 0.0
+                    dev["blocked"] = True
+                    self.blocked_set.add(dev["mac"])
+                    self.log_event(
+                        f"🚨 QUOTA LIMIT REACHED ({dev['quota_gb']:.1f} GB): {dev['name']} reached quota limit -> BLOCKED by firewall!",
+                        "BLOCK"
+                    )
+                else:
+                    dev["download_speed"] = dl_speed
+                    dev["upload_speed"] = ul_speed
+                    dev["download_bytes"] += dl_speed
+                    dev["upload_bytes"] += ul_speed
+                    self._evaluate_quota(dev)
 
     def get_devices_summary(self) -> List[Dict[str, Any]]:
         with self.lock:
@@ -279,7 +327,7 @@ class OpenWrtRouterSimulator:
                 tot_bytes = d["download_bytes"] + d["upload_bytes"]
                 tot_gb = tot_bytes / (1024 ** 3)
                 quota_gb = d["quota_gb"]
-                pct = (tot_gb / quota_gb * 100.0) if quota_gb > 0 else 0.0
+                pct = min(100.0, (tot_gb / quota_gb * 100.0)) if quota_gb > 0 else 0.0
                 rem_gb = max(0.0, quota_gb - tot_gb)
 
                 status = "blocked" if d["blocked"] else ("warning" if pct >= 80 else "allowed")
