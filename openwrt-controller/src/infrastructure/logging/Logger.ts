@@ -39,7 +39,11 @@ export class Logger implements ILogger {
     this.minLevel = options.minLevel ?? (process.env.NODE_ENV === 'test' ? 'debug' : 'info');
     this.bindings = options.bindings ? this.sanitizeContext(options.bindings) : {};
     this.sink = options.sink;
-    this.outputJson = options.outputJson ?? true;
+
+    const isExplicitJson = process.env.LOG_FORMAT === 'json';
+    const isExplicitPretty = process.env.LOG_FORMAT === 'pretty';
+    const isProd = process.env.NODE_ENV === 'production';
+    this.outputJson = options.outputJson ?? (isExplicitJson || (isProd && !isExplicitPretty));
   }
 
   public debug(eventOrMsg: string, ...args: unknown[]): void {
@@ -158,12 +162,95 @@ export class Logger implements ILogger {
         console.log(formattedJson);
       }
     } else {
-      const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
-      const str = `${prefix} ${event}${message ? `: ${message}` : ''}`;
-      if (level === 'error') console.error(str);
-      else if (level === 'warn') console.warn(str);
-      else console.log(str);
+      const line = this.formatTerminalLine(entry);
+      if (level === 'error') console.error(line);
+      else if (level === 'warn') console.warn(line);
+      else console.log(line);
     }
+  }
+
+  private formatTerminalLine(entry: StructuredLogEntry): string {
+    const time = entry.timestamp.substring(11, 19);
+
+    // Level styling with ANSI colors
+    let levelBadge = `[${entry.level.toUpperCase()}]`;
+    if (entry.level === 'error') {
+      levelBadge = `\x1b[1;31m[ERROR]\x1b[0m`;
+    } else if (entry.level === 'warn') {
+      levelBadge = `\x1b[1;33m[WARN ]\x1b[0m`;
+    } else if (entry.level === 'info') {
+      levelBadge = `\x1b[1;32m[INFO ]\x1b[0m`;
+    } else if (entry.level === 'debug') {
+      levelBadge = `\x1b[1;36m[DEBUG]\x1b[0m`;
+    }
+
+    // Module tag
+    let moduleTag = '';
+    const rawModule = (entry.module as string) || '';
+    const event = entry.event || '';
+    if (rawModule === 'resilience' || event.startsWith('circuit_breaker')) {
+      moduleTag = `\x1b[35m[Resilience]\x1b[0m `;
+    } else if (rawModule === 'quota' || event.includes('quota') || event.includes('reconciliation')) {
+      moduleTag = `\x1b[34m[Quota]\x1b[0m `;
+    } else if (rawModule === 'firewall' || event.includes('firewall') || event.includes('block')) {
+      moduleTag = `\x1b[33m[Firewall]\x1b[0m `;
+    } else if (rawModule === 'openwrt' || event.includes('ssh') || event.includes('ubus')) {
+      moduleTag = `\x1b[36m[OpenWrt]\x1b[0m `;
+    } else if (rawModule) {
+      moduleTag = `\x1b[90m[${rawModule}]\x1b[0m `;
+    }
+
+    // Clean human-friendly event mapping
+    let text = '';
+    if (event === 'circuit_breaker_opened') {
+      const cooldownSec = entry.resetTimeoutMs ? Math.round(Number(entry.resetTimeoutMs) / 1000) : 10;
+      text = `⚠️ Router unreachable via SSH. Circuit breaker OPEN (cooldown: ${cooldownSec}s)`;
+    } else if (event === 'circuit_breaker_half_open') {
+      text = `🔍 Cooldown elapsed. Probing OpenWrt router connection...`;
+    } else if (event === 'circuit_breaker_closed') {
+      text = `✅ OpenWrt router reachable. Circuit breaker CLOSED.`;
+    } else if (event === 'circuit_breaker_open') {
+      text = `⏸️ OpenWrt operations paused by circuit breaker (cooldown active)`;
+    } else if (event === 'reconciliation_started') {
+      text = `🔄 Quota reconciliation cycle started`;
+    } else if (event === 'reconciliation_completed') {
+      text = `✨ Quota reconciliation completed (${entry.durationMs ?? 0}ms)`;
+    } else if (event === 'quota_refresh_failed') {
+      text = `❌ Router quota refresh failed: ${entry.error || entry.message || 'connection error'}`;
+    } else if (event === 'quota_exhausted') {
+      const macStr = entry.mac ? ` for MAC ${entry.mac}` : '';
+      const used = typeof entry.usedBytes === 'number' ? this.formatBytes(entry.usedBytes) : '';
+      const limit = typeof entry.quotaBytes === 'number' ? this.formatBytes(entry.quotaBytes) : '';
+      const stats = used && limit ? ` (${used} / ${limit})` : '';
+      text = `🛑 Quota limit reached${macStr}${stats}`;
+    } else if (event === 'device_blocked') {
+      const macStr = entry.mac ? ` device ${entry.mac}` : '';
+      text = `🔒 Firewall: Blocked${macStr} (source: ${entry.source || 'quota'})`;
+    } else if (event === 'device_unblocked') {
+      const macStr = entry.mac ? ` device ${entry.mac}` : '';
+      text = `🔓 Firewall: Unblocked${macStr}`;
+    } else if (event === 'manual_block_protected') {
+      const macStr = entry.mac ? ` for MAC ${entry.mac}` : '';
+      text = `🛡️ Manual administrator block protected${macStr}`;
+    } else if (event === 'orphan_block_removed') {
+      const macStr = entry.mac ? ` for MAC ${entry.mac}` : '';
+      text = `🧹 Removed stale/orphan firewall block${macStr}`;
+    } else {
+      text = entry.message ? `${entry.message}` : event;
+      if (entry.error && !text.includes(String(entry.error))) {
+        text += ` - Error: ${entry.error}`;
+      }
+    }
+
+    return `\x1b[90m[${time}]\x1b[0m ${levelBadge} ${moduleTag}${text}`;
+  }
+
+  private formatBytes(bytes?: number): string {
+    if (bytes === undefined || bytes === null || isNaN(bytes)) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   }
 
   private inferEventFromMessage(msg: string): string {

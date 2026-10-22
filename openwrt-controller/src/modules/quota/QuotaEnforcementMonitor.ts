@@ -19,9 +19,10 @@ export interface IEnforcementLogger {
 }
 
 const defaultConsoleLogger: IEnforcementLogger = {
-  info: (msg, ...args) => console.log(`[QuotaEnforcementMonitor] ${msg}`, ...args),
-  warn: (msg, ...args) => console.warn(`[QuotaEnforcementMonitor] ${msg}`, ...args),
-  error: (msg, ...args) => console.error(`[QuotaEnforcementMonitor] ${msg}`, ...args),
+  info: (msg, ...args) => defaultStructuredLogger.info(msg, ...args),
+  warn: (msg, ...args) => defaultStructuredLogger.warn(msg, ...args),
+  error: (msg, ...args) => defaultStructuredLogger.error(msg, ...args),
+  debug: (msg, ...args) => defaultStructuredLogger.debug(msg, ...args),
 };
 
 export interface QuotaEnforcementMonitorOptions {
@@ -147,6 +148,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
   private devicesBlocked = 0;
   private devicesUnblocked = 0;
   private currentReconciliationId: string | null = null;
+  private circuitBreakerOpenLogged = false;
 
   constructor(
     private readonly quotaService: QuotaService = defaultQuotaService,
@@ -263,7 +265,6 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
   public async runCycle(): Promise<EnforcementCycleResult | null> {
     // Overlapping execution prevention lock
     if (this.isSyncing) {
-      this.logger.warn('Previous quota enforcement cycle is still in progress; skipping overlapping run');
       return null;
     }
 
@@ -278,11 +279,13 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
     // 0. Circuit Breaker protection: avoid hammering SSH if router is down
     if (this.circuitBreaker.isOpen()) {
-      this.logger.warn('Circuit breaker is OPEN: OpenWrt router operations paused; skipping cycle');
-      cycleLogger.warn('circuit_breaker_open', {
-        reconciliationId,
-        message: 'OpenWrt router operations paused by circuit breaker',
-      });
+      if (!this.circuitBreakerOpenLogged) {
+        cycleLogger.warn('circuit_breaker_open', {
+          reconciliationId,
+          message: 'OpenWrt router operations paused by circuit breaker',
+        });
+        this.circuitBreakerOpenLogged = true;
+      }
 
       const durationMs = Date.now() - startTime;
       const isoNow = new Date().toISOString();
@@ -308,6 +311,8 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
       };
     }
 
+    this.circuitBreakerOpenLogged = false;
+
     this.metrics.increment('reconciliation_runs');
     this.metrics.increment('quota_enforcement_cycles_total');
     this.metrics.increment('quota_reconciliation_cycles_total');
@@ -329,10 +334,8 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
         this.metrics.increment('reconciliation_failures');
 
         const errMsg = this.sanitizeErrorMessage(err);
-        this.logger.error(`Failed to refresh quotas from router: ${errMsg}`);
-        cycleLogger.error('operation_failed', {
+        cycleLogger.error('quota_refresh_failed', {
           reconciliationId,
-          event: 'quota_refresh_failed',
           category: classified.category,
           error: errMsg,
         });

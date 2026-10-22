@@ -43,7 +43,7 @@ async function runSecurityRateLimitTests() {
     for (let i = 0; i < 3; i++) {
       const res = await app.inject({
         method: 'GET',
-        url: '/api/devices',
+        url: '/',
       });
       assert.equal(res.statusCode, 200);
       assert.ok(res.headers['x-ratelimit-limit']);
@@ -53,7 +53,7 @@ async function runSecurityRateLimitTests() {
     // 4th request must be throttled
     const blockedRes = await app.inject({
       method: 'GET',
-      url: '/api/devices',
+      url: '/',
     });
 
     assert.equal(blockedRes.statusCode, 429);
