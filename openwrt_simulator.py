@@ -828,7 +828,9 @@ def main():
         httpd = ThreadedHTTPServer(server_address, SimulatorHTTPHandler)
     except OSError as e:
         print(f"{Colors.RED}❌ Could not bind to port {args.port}: {e}{Colors.RESET}")
-        print("Please check if another process is using this port.")
+        print(f"💡 Hint: Another process is using port {args.port}.")
+        print(f"   To free it, run: fuser -k {args.port}/tcp")
+        print(f"   Or run simulator on another port: python3 openwrt_simulator.py --port {args.port + 1}")
         sys.exit(1)
 
     # Start HTTP server thread
