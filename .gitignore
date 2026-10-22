@@ -38,3 +38,8 @@ dist/
 .env.local
 .env.*.local
 
+# VM images & lab artifacts
+openwrt_lab/
+*.img
+*.qcow2
+wifi-quota-manager/

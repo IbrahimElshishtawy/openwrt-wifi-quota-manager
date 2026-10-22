@@ -366,7 +366,7 @@ which nft
 
 #### 4. أمر تثبيت أي حزمة ناقصة (في حال عدم وجودها):
 ```bash
-opkg update
+    opkg update
 opkg install python3-base nlbwmon nftables
 ```
 
@@ -383,7 +383,7 @@ ps | grep nlbwmon
 
 #### 2. فحص تسجيل nlbwmon في ناقل النظام ubus:
 ```bash
-ubus list | grep nlbwmon
+    ubus list | grep nlbwmon
 ```
 *الناتج المتوقع:* ظهور `nlbwmon`.
 
@@ -448,7 +448,7 @@ table inet quota_manager   <-- (أو quota_enforcement)
 
 #### 2. استعراض قواعد جدول الكوتا بالكامل:
 ```bash
-nft list table inet quota_manager
+    nft list table inet quota_manager
 # أو إذا تم تفعيله باسم quota_enforcement:
 nft list table inet quota_enforcement
 ```
@@ -479,18 +479,17 @@ nft list set inet quota_enforcement blocked_macs
 #### 4. تجربة يدوية لإضافة جهاز للاختبار (Manual Block Test):
 ```bash
 # إضافة عنوان MAC تجريبي:
-nft add element inet quota_manager blocked_devices '{ 52:54:00:aa:bb:cc }'
 
 # التحقق من إضافته:
-nft list set inet quota_manager blocked_devices | grep -i "52:54:00:aa:bb:cc"
+    nft list set inet quota_enforcement blocked_devices | grep -i "52:54:00:aa:bb:cc"
 
 # حذفه وفك الحظر عنه:
-nft delete element inet quota_manager blocked_devices '{ 52:54:00:aa:bb:cc }'
+nft delete element inet quota_enforcement blocked_devices '{ 52:54:00:aa:bb:cc }'
 ```
 
 #### 5. التأكد من عدادات الحزم المسقطة (Drop Counters):
 ```bash
-nft list chain inet quota_manager forward_quota
+nft list chain inet quota_enforcement forward_quota
 ```
 *الناتج:* رؤية عدد الحزم (packets) والبايتات (bytes) التي تم حظرها وإسقاطها بواسطة القاعدة.
 

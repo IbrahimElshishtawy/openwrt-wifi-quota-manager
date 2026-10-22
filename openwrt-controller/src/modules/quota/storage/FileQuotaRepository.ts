@@ -4,6 +4,7 @@ import { env } from '../../../config/env.js';
 import type { DeviceQuotaRecord } from '../types.js';
 import { QuotaStorageError } from '../types.js';
 import type { IQuotaRepository } from './IQuotaRepository.js';
+export type { IQuotaRepository } from './IQuotaRepository.js';
 
 /**
  * Robust JSON-file based persistence implementation for Device Quotas.

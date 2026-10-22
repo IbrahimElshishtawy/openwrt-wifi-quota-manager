@@ -346,6 +346,24 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     return reply.status(404).send(notFoundPayload);
   });
 
+  // Root index endpoint
+  app.get('/', async (_request, reply) => {
+    return reply.status(200).send({
+      service: 'openwrt-controller',
+      status: 'online',
+      message: 'OpenWrt Wi-Fi Quota Manager Controller API is running',
+      endpoints: {
+        healthLive: '/health/live',
+        healthReady: '/health/ready',
+        devices: '/api/devices',
+        quotas: '/api/quotas',
+        firewallBlocked: '/api/firewall/blocked',
+        metrics: '/metrics',
+        simulatorDashboard: 'http://127.0.0.1:8080/dashboard',
+      },
+    });
+  });
+
   // Register modular routes
   await app.register(healthRoutes);
   await app.register(metricsRoutes);

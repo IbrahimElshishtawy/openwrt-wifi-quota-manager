@@ -6,7 +6,7 @@
 
 set -uo pipefail
 
-CONTROLLER_PORT="${PORT:-3001}"
+CONTROLLER_PORT="${PORT:-3050}"
 CONTROLLER_URL="http://127.0.0.1:${CONTROLLER_PORT}"
 ROUTER_IP="192.168.50.1"
 CLIENT_IP="192.168.50.50"
@@ -195,18 +195,22 @@ curl -s -X PATCH -H "Content-Type: application/json" -d '{"quotaBytes": 1000, "u
 wait_element_state "$CLIENT_MAC" "present" 12
 assert_success "Device blocked before controller restart" $?
 
-echo "Stopping controller process (PID: ${SERVER_PID:-unknown})..."
-if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill "$SERVER_PID"
+echo "Restarting controller process (PID: ${SERVER_PID:-unknown})..."
+if docker ps --format '{{.Names}}' | grep -q "^openwrt-controller$"; then
+    echo "Restarting Docker container openwrt-controller..."
+    docker restart openwrt-controller
 else
-    pkill -f "openwrt-controller.*server" || true
+    if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill "$SERVER_PID"
+    else
+        pkill -f "openwrt-controller.*server" || true
+    fi
+    sleep 2
+    echo "Starting controller process again on port $CONTROLLER_PORT..."
+    PORT="$CONTROLLER_PORT" node dist/server.js >/dev/null 2>&1 &
+    SERVER_PID=$!
 fi
-sleep 2
-
-echo "Starting controller process again on port $CONTROLLER_PORT..."
-PORT="$CONTROLLER_PORT" node dist/server.js >/dev/null 2>&1 &
-SERVER_PID=$!
-for i in {1..15}; do
+for i in {1..20}; do
     if curl -s "$CONTROLLER_URL/api/health" | grep -q '"status":"healthy"'; then
         break
     fi

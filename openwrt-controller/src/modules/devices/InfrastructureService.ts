@@ -41,6 +41,7 @@ export class InfrastructureService {
       '00:00:00:00:00:00',
       'FF:FF:FF:FF:FF:FF',
       '52:54:00:E3:BE:C2',
+      '52:54:00:5B:2E:C1',
     ]);
 
     const excludedHostnames = new Set<string>([

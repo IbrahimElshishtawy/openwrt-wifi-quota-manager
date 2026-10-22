@@ -10,6 +10,10 @@ import {
   devicesService,
   DevicesService,
 } from '../devices/DevicesService.js';
+import {
+  quotaRepository,
+  type IQuotaRepository,
+} from '../quota/storage/FileQuotaRepository.js';
 import { normalizeMac } from '../devices/utils/network.utils.js';
 import {
   UsageFetchError,
@@ -26,7 +30,8 @@ export type { DeviceUsage, RawNlbwmonResponse, UsageApiResponse };
 export class UsageService {
   constructor(
     private readonly ssh: ISshClient = sshClient,
-    private readonly devices: DevicesService = devicesService
+    private readonly devices: DevicesService = devicesService,
+    private readonly quotas: IQuotaRepository = quotaRepository
   ) {}
 
   /**
