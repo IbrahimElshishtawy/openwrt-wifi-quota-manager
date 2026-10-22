@@ -41,6 +41,16 @@ export function createHttpMetricsHooks(options: HttpMetricsOptions = {}) {
     if (reply.statusCode >= 400) {
       metrics.increment('http_errors_total', 1, { method, route, status });
     }
+
+    if (process.env.NODE_ENV !== 'production' && process.env.LOG_FORMAT !== 'json' && process.env.NODE_ENV !== 'test') {
+      const time = new Date().toISOString().substring(11, 19);
+      const code = reply.statusCode;
+      const ms = Math.round(durationMs * 10) / 10;
+      let statusColor = '\x1b[32m';
+      if (code >= 500) statusColor = '\x1b[31m';
+      else if (code >= 400) statusColor = '\x1b[33m';
+      console.log(`\x1b[90m[${time}]\x1b[0m \x1b[1;32m[INFO ]\x1b[0m \x1b[35m[HTTP]\x1b[0m ${method} ${request.url} ${statusColor}${code}\x1b[0m (${ms}ms)`);
+    }
   };
 
   return {

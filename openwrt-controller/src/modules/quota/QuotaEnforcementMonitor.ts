@@ -279,14 +279,6 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
 
     // 0. Circuit Breaker protection: avoid hammering SSH if router is down
     if (this.circuitBreaker.isOpen()) {
-      if (!this.circuitBreakerOpenLogged) {
-        cycleLogger.warn('circuit_breaker_open', {
-          reconciliationId,
-          message: 'OpenWrt router operations paused by circuit breaker',
-        });
-        this.circuitBreakerOpenLogged = true;
-      }
-
       const durationMs = Date.now() - startTime;
       const isoNow = new Date().toISOString();
       this.lastCompletedAt = isoNow;
@@ -318,7 +310,7 @@ export class QuotaEnforcementMonitor implements IQuotaEnforcementMonitor {
     this.metrics.increment('quota_reconciliation_cycles_total');
 
     try {
-      cycleLogger.info('reconciliation_started', { reconciliationId });
+      cycleLogger.debug('reconciliation_started', { reconciliationId });
 
       // 1. Fetch fresh quotas from QuotaService (incorporating fresh usage from UsageService)
       let quotas: DeviceQuota[] = [];

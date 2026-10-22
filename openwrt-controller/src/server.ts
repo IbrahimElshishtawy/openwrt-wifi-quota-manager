@@ -4,44 +4,30 @@ import { APP_VERSION } from './version.js';
 import { firewallService } from './modules/firewall/FirewallService.js';
 import { quotaEnforcementMonitor } from './modules/quota/QuotaEnforcementMonitor.js';
 import { GracefulShutdownHandler } from './infrastructure/shutdown/GracefulShutdown.js';
+import { logger } from './infrastructure/logging/Logger.js';
 
 const startServer = async (): Promise<void> => {
   // 1. Create app
   const app = await buildApp();
 
-  app.log.info(
-    {
-      nodeEnv: env.NODE_ENV,
-      authEnabled: env.NODE_ENV === 'production' || Boolean(env.API_AUTH_TOKEN ?? env.ADMIN_API_TOKEN),
-      corsOrigin: env.CORS_ORIGIN,
-      rateLimitMax: env.API_RATE_LIMIT_MAX,
-    },
-    'Configuration validated and security posture active'
-  );
+  logger.info(`OpenWrt Controller v${APP_VERSION} starting (env: ${env.NODE_ENV})...`);
 
   // 2. Initialize firewall enforcement
   try {
-    app.log.info('Initializing firewall enforcement ruleset on OpenWrt...');
+    logger.info('Initializing firewall enforcement ruleset on OpenWrt...');
     await firewallService.initialize();
-    app.log.info('Firewall enforcement ruleset verified/initialized successfully');
-  } catch (firewallErr) {
-    app.log.warn(
-      firewallErr,
-      'Firewall initialization warning: unable to connect or initialize nftables on router right now. Monitor will retry on each sync.'
-    );
+    logger.info('Firewall enforcement ruleset verified/initialized successfully');
+  } catch {
+    logger.warn('Firewall: OpenWrt router is currently unreachable via SSH. Monitor will retry automatically.');
   }
 
   // 3. Start Quota Enforcement Monitor & Reconcile Quotas with Actual nftables State
   if (env.QUOTA_ENFORCEMENT_ENABLED && env.NODE_ENV !== 'test') {
     try {
-      app.log.info('[QuotaRecovery] Starting QuotaEnforcementMonitor with startup reconciliation...');
+      logger.info('Starting QuotaEnforcementMonitor with startup reconciliation...');
       await quotaEnforcementMonitor.start();
-      app.log.info('[QuotaRecovery] QuotaEnforcementMonitor started and startup reconciliation completed successfully');
-    } catch (recoveryErr) {
-      app.log.warn(
-        recoveryErr,
-        '[QuotaRecovery] Initial recovery warning: unable to complete startup reconciliation. Periodic monitor will retry.'
-      );
+    } catch {
+      logger.warn('Startup reconciliation: OpenWrt router unreachable. Monitor will retry automatically.');
     }
   }
 
@@ -49,8 +35,8 @@ const startServer = async (): Promise<void> => {
   const shutdownHandler = new GracefulShutdownHandler(app, quotaEnforcementMonitor, {
     timeoutMs: env.SHUTDOWN_TIMEOUT_MS,
     logger: {
-      info: (msg) => app.log.info(msg),
-      error: (msg, err) => app.log.error(err, msg),
+      info: (msg) => logger.info(msg),
+      error: (msg, err) => logger.error(msg, { error: err }),
     },
   });
   shutdownHandler.registerSignals(['SIGINT', 'SIGTERM']);
@@ -62,17 +48,9 @@ const startServer = async (): Promise<void> => {
       host: env.HOST,
     });
 
-    app.log.info(
-      {
-        version: APP_VERSION,
-        host: env.HOST,
-        port: env.PORT,
-        nodeEnv: env.NODE_ENV,
-      },
-      `🚀 OpenWrt Controller v${APP_VERSION} listening at ${address}`
-    );
+    logger.info(`🚀 OpenWrt Controller v${APP_VERSION} listening at ${address}`);
   } catch (err) {
-    app.log.error(err, 'Failed to start server');
+    logger.error('Failed to start server', { error: err });
     process.exit(1);
   }
 };

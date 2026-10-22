@@ -85,6 +85,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   const isProduction = env.NODE_ENV === 'production';
 
   const app = Fastify({
+    // In development, disable internal raw JSON request logs in favor of clean single-line logs
+    disableRequestLogging: !isProduction,
+
     // Strict request size limit to prevent memory exhaustion / DoS
     bodyLimit: 64 * 1024, // 64 KB
 
@@ -98,7 +101,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     },
 
     logger: {
-      level: isProduction ? 'info' : 'debug',
+      level: isProduction ? 'info' : 'warn',
       // Strict redaction of secrets, tokens, credentials, and sensitive headers in logs
       redact: {
         paths: [

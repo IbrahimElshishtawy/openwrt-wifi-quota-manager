@@ -32,11 +32,17 @@ export class CircuitBreaker {
     metricsService.set('resilience_circuit_breaker_state', 0);
   }
 
+  public getEffectiveCooldownMs(): number {
+    if (this.consecutiveFailures <= 2) return this.cooldownPeriodMs;
+    if (this.consecutiveFailures <= 5) return this.cooldownPeriodMs * 2;
+    return this.cooldownPeriodMs * 3;
+  }
+
   public getState(): CircuitState {
     // If currently OPEN, check if cooldown period has elapsed to move to HALF_OPEN
     if (this.state === 'OPEN') {
       const elapsed = Date.now() - this.lastStateChangeTime;
-      if (elapsed >= this.cooldownPeriodMs) {
+      if (elapsed >= this.getEffectiveCooldownMs()) {
         this.transitionTo('HALF_OPEN');
       }
     }
@@ -146,6 +152,7 @@ export class CircuitBreaker {
       metricsService.set('resilience_circuit_breaker_state', 2);
       metricsService.increment('resilience_circuit_breaker_opens_total', 1);
 
+      const effectiveCooldown = this.getEffectiveCooldownMs();
       logger.warn('circuit_breaker_opened', {
         module: 'resilience',
         operation: 'circuit_breaker',
@@ -153,7 +160,7 @@ export class CircuitBreaker {
         toState: newState,
         failureCount: this.consecutiveFailures,
         lastFailureTime: this.lastFailureTime ? new Date(this.lastFailureTime).toISOString() : null,
-        resetTimeoutMs: this.cooldownPeriodMs,
+        resetTimeoutMs: effectiveCooldown,
         lastError: this.lastErrorMessage ?? undefined,
       });
     } else if (newState === 'HALF_OPEN') {
@@ -161,14 +168,17 @@ export class CircuitBreaker {
       metricsService.set('resilience_circuit_breaker_state', 1);
       metricsService.increment('resilience_circuit_breaker_half_open_probes_total', 1);
 
-      logger.info('circuit_breaker_half_open', {
-        module: 'resilience',
-        operation: 'circuit_breaker',
-        fromState: oldState,
-        toState: newState,
-        probe: 'starting',
-        cooldownElapsedMs: this.cooldownPeriodMs,
-      });
+      // Only print probe log on early retries or periodically to prevent terminal flooding
+      if (this.consecutiveFailures <= 3 || this.consecutiveFailures % 5 === 0) {
+        logger.info('circuit_breaker_half_open', {
+          module: 'resilience',
+          operation: 'circuit_breaker',
+          fromState: oldState,
+          toState: newState,
+          probe: 'starting',
+          cooldownElapsedMs: this.getEffectiveCooldownMs(),
+        });
+      }
     }
 
     if (this.onStateChange) {
